@@ -5,7 +5,6 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faSun,
   faMoon,
-  faCircleInfo,
   faFloppyDisk,
   faChevronLeft,
   faEdit,
@@ -25,6 +24,7 @@ import {
   faCopy,
   faCircleCheck,
   faXmark,
+  faLeaf,
 } from '@fortawesome/free-solid-svg-icons';
 
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
@@ -53,9 +53,11 @@ interface GameSuggestion {
 /* Helper functions for portable URL sharing across devices */
 const encodeSaveForShare = (save: GameSave): string => {
   const payload = {
+    originalId: save.id,
     name: save.name,
     scenario: save.scenario || '',
     color: save.color,
+    lastModified: save.lastModified,
     next: save.next || '',
     round: save.round || 1,
     npid: save.npid ?? null,
@@ -71,7 +73,7 @@ const encodeSaveForShare = (save: GameSave): string => {
   }
 };
 
-const decodeSaveFromShare = (encodedStr: string): Partial<GameSave> | null => {
+const decodeSaveFromShare = (encodedStr: string): Partial<GameSave & { originalId?: string }> | null => {
   try {
     const base64 = decodeURIComponent(encodedStr);
     const jsonStr = decodeURIComponent(
@@ -235,6 +237,7 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [importConflict, setImportConflict] = useState<{ existingSave: GameSave; incomingSave: GameSave } | null>(null);
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -305,34 +308,73 @@ export default function App() {
     setScreenState(s);
   };
 
-  // Enhanced routing for Deep Links and Portable Import links
+  // Smart Router: Handles PWA launch, Deep Links, Share Target & Import Conflicts
   useEffect(() => {
     const handleHashRouting = async () => {
-      const hash = window.location.hash;
+      let hash = window.location.hash;
+      const search = window.location.search;
 
-      if (hash.startsWith('#/import/')) {
+      if (search.includes('text=') || search.includes('url=')) {
+        const params = new URLSearchParams(search);
+        const textParam = params.get('text') || params.get('url') || '';
+        const match = textParam.match(/#\/(import|save)\/([^\s]+)/);
+        if (match) hash = `#/${match[1]}/${match[2]}`;
+      }
+
+      if (hash.includes('web+packaway:')) {
+        hash = hash.replace(/.*web\+packaway:(?:\/\/)*/i, '');
+        if (!hash.startsWith('#/')) hash = '#/import/' + hash;
+      }
+
+     if (hash.startsWith('#/import/')) {
         const encoded = hash.replace('#/import/', '');
-        const importedSave = decodeSaveFromShare(encoded);
-        if (importedSave && importedSave.name) {
-          const newId = `save_${Date.now()}`;
-          const newSave: GameSave = {
-            id: newId,
-            name: importedSave.name,
-            scenario: importedSave.scenario || '',
-            color: importedSave.color || PALETTE_DARK[0],
+        const imported = decodeSaveFromShare(encoded);
+
+        if (imported && imported.name) {
+          const importedName = imported.name;
+          const importedScenario = imported.scenario || '';
+          const allSaves = await db.saves.toArray();
+
+          const existing = allSaves.find(s => 
+            (imported.originalId && s.id === imported.originalId) ||
+            (s.name.toLowerCase() === importedName.toLowerCase() && (s.scenario || '').toLowerCase() === importedScenario.toLowerCase())
+          );
+
+          const incomingSave: GameSave = {
+            id: imported.originalId || `save_${Date.now()}`,
+            name: importedName,
+            scenario: importedScenario,
+            color: imported.color || PALETTE_DARK[0],
             hasPhoto: false,
-            lastModified: Date.now(),
-            next: importedSave.next || '',
-            round: importedSave.round || 1,
-            npid: importedSave.npid ?? null,
-            players: importedSave.players || [],
-            cl: importedSave.cl || []
+            lastModified: imported.lastModified || Date.now(),
+            next: imported.next || '',
+            round: imported.round || 1,
+            npid: imported.npid ?? null,
+            players: imported.players || [],
+            cl: imported.cl || []
           };
-          await db.saves.put(newSave);
-          setSelectedSaveId(newId);
+
+          if (existing) {
+            // Case 1: Exact identical save -> Open directly
+            if (existing.lastModified === incomingSave.lastModified && JSON.stringify(existing.players) === JSON.stringify(incomingSave.players)) {
+              setSelectedSaveId(existing.id);
+              setScreenState('resume');
+              showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `You already have this save point!`);
+              try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${existing.id}`); } catch { /* ignore */ }
+              return;
+            }
+
+            // Case 2: Save exists but has new changes -> Prompt User
+            setImportConflict({ existingSave: existing, incomingSave });
+            return;
+          }
+
+          // Case 3: Brand new save -> Add directly
+          await db.saves.put(incomingSave);
+          setSelectedSaveId(incomingSave.id);
           setScreenState('resume');
-          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported "${newSave.name}"!`);
-          try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newId}`); } catch { /* ignore */ }
+          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported "${incomingSave.name}"!`);
+          try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${incomingSave.id}`); } catch { /* ignore */ }
           return;
         }
       }
@@ -342,7 +384,7 @@ export default function App() {
         setSelectedSaveId(saveId);
         setScreenState('resume');
       } else {
-        try { window.history.replaceState({ screen: 'home' }, ''); } catch { /* ignore */ }
+        try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
       }
     };
 
@@ -372,7 +414,7 @@ export default function App() {
   }, [showChecklist]);
 
   useEffect(() => {
-    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareModal || fullscreenImage);
+    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareModal || fullscreenImage || importConflict);
     if (!anyModalOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -380,10 +422,11 @@ export default function App() {
       setShowPhotoModal(false);
       setShareModal(null);
       setFullscreenImage(null);
+      setImportConflict(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteConfirmId, showPhotoModal, shareModal, fullscreenImage]);
+  }, [deleteConfirmId, showPhotoModal, shareModal, fullscreenImage, importConflict]);
 
   const showToastMsg = (icon: React.ReactNode, msg: string) => {
     setToast({ icon, msg });
@@ -700,7 +743,7 @@ export default function App() {
                   title="About"
                   aria-label="About PackAway"
                 >
-                  <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />
+                  <FontAwesomeIcon icon={faLeaf} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -1317,7 +1360,6 @@ export default function App() {
                   const id = deleteConfirmId;
                   setDeleteConfirmId(null);
                   
-                  // Transition to home immediately before executing async delete
                   if (selectedSaveId === id) {
                     setSelectedSaveId(null);
                     setScreen('home', false);
@@ -1334,6 +1376,56 @@ export default function App() {
               </button>
             </div>
             <button className="share-close" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ IMPORT CONFLICT MODAL ══ */}
+      {importConflict && (
+        <div className="share-overlay" onClick={() => setImportConflict(null)}>
+          <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="import-modal-title" onClick={e => e.stopPropagation()}>
+            <p className="share-title" id="import-modal-title">Import Game Save</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginBottom: '16px', lineHeight: '1.4' }}>
+              An existing save point for <strong>"{importConflict.incomingSave.name}"</strong> was found on this device.
+            </p>
+            <div className="share-btns">
+              <button
+                className="btn-primary"
+                onClick={async () => {
+                  const updatedSave = { ...importConflict.incomingSave, id: importConflict.existingSave.id, lastModified: Date.now() };
+                  await db.saves.put(updatedSave);
+                  setSelectedSaveId(updatedSave.id);
+                  setImportConflict(null);
+                  setScreenState('resume');
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Updated "${updatedSave.name}"!`);
+                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${updatedSave.id}`); } catch { /* ignore */ }
+                }}
+              >
+                🔄 Overwrite / Update Existing
+              </button>
+              
+              <button
+                className="share-btn share-copy"
+                onClick={async () => {
+                  const newCopyId = `save_${Date.now()}`;
+                  const copySave = {
+                    ...importConflict.incomingSave,
+                    id: newCopyId,
+                    name: `${importConflict.incomingSave.name} (Copy)`,
+                    lastModified: Date.now()
+                  };
+                  await db.saves.put(copySave);
+                  setSelectedSaveId(newCopyId);
+                  setImportConflict(null);
+                  setScreenState('resume');
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported as new copy!`);
+                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newCopyId}`); } catch { /* ignore */ }
+                }}
+              >
+                📋 Keep Both (Save as Copy)
+              </button>
+            </div>
+            <button className="share-close" onClick={() => { setImportConflict(null); goToHome(); }}>Cancel</button>
           </div>
         </div>
       )}

@@ -22,6 +22,25 @@ export default defineConfig({
         display: 'standalone',
         orientation: 'portrait',
         start_url: '/',
+        scope: '/',
+        launch_handler: {
+          client_mode: ['focus-existing', 'navigate-new']
+        },
+        protocol_handlers: [
+          {
+            protocol: 'web+packaway',
+            url: '/#/import/%s'
+          }
+        ],
+        share_target: {
+          action: '/',
+          method: 'GET',
+          params: {
+            title: 'title',
+            text: 'text',
+            url: 'url'
+          }
+        },
         icons: [
           {
             src: '/pwa-192x192.png',
@@ -40,7 +59,7 @@ export default defineConfig({
             purpose: 'any maskable'
           }
         ]
-      }
+      } as any
     })
   ]
 })
