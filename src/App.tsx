@@ -350,18 +350,30 @@ export default function App() {
   useEffect(() => {
     const handleHashRouting = async () => {
       let hash = window.location.hash;
+      let pathname = window.location.pathname;
       const search = window.location.search;
 
+      // Handle Share Target query params
       if (search.includes('text=') || search.includes('url=')) {
         const params = new URLSearchParams(search);
         const textParam = params.get('text') || params.get('url') || '';
-        const match = textParam.match(/#\/(import|save)\/([^\s]+)/);
+        const match = textParam.match(/(?:#|\/)(import|save)\/([^\s]+)/);
         if (match) hash = `#/${match[1]}/${match[2]}`;
       }
 
+      // Handle custom scheme web+packaway://
       if (hash.includes('web+packaway:')) {
         hash = hash.replace(/.*web\+packaway:(?:\/\/)*/i, '');
         if (!hash.startsWith('#/')) hash = '#/import/' + hash;
+      }
+
+      // Handle PWA Path links like /import/<data> or /save/<id>
+      if (!hash || hash === '#' || hash === '#/') {
+        if (pathname.startsWith('/import/')) {
+          hash = `#${pathname}`;
+        } else if (pathname.startsWith('/save/')) {
+          hash = `#${pathname}`;
+        }
       }
 
       if (hash.startsWith('#/import/')) {
@@ -393,7 +405,6 @@ export default function App() {
           };
 
           if (existing) {
-            // Case 1: Exact identical save -> Open directly
             if (existing.lastModified === incomingSave.lastModified && JSON.stringify(existing.players) === JSON.stringify(incomingSave.players)) {
               setSelectedSaveId(existing.id);
               setScreenState('resume');
@@ -402,12 +413,10 @@ export default function App() {
               return;
             }
 
-            // Case 2: Save exists but has new changes -> Prompt User
             setImportConflict({ existingSave: existing, incomingSave });
             return;
           }
 
-          // Case 3: Brand new save -> Add directly
           await db.saves.put(incomingSave);
           setSelectedSaveId(incomingSave.id);
           setScreenState('resume');
@@ -558,7 +567,7 @@ export default function App() {
   const handleShare = (save: GameSave) => {
     const sharePayload = encodeSaveForShare(save);
     const portableLink = sharePayload
-      ? `${window.location.origin}/#/import/${sharePayload}`
+      ? `${window.location.origin}/import/${sharePayload}`
       : `${window.location.origin}/#/save/${save.id}`;
 
     const playerLines = save.players.map(p => {
@@ -1462,7 +1471,7 @@ export default function App() {
       {showPhotoModal && (
         <div className="share-overlay" onClick={() => setShowPhotoModal(false)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="photo-modal-title" onClick={e => e.stopPropagation()}>
-            <p className="share-title" id="photo-modal-title">Attach Table Photo</p>
+            <p className="share-title" id="photo-modal-title">Attach Photo</p>
             <div className="share-btns">
               <button
                 className="share-btn share-copy"
@@ -1488,13 +1497,13 @@ export default function App() {
         </div>
       )}
 
-      {/* ══ SHARE MODAL PERSONALIZZATO ══ */}
+      {/* ══ CUSTOM SHARE MODAL ══ */}
       {shareData && (
         <div className="share-overlay" onClick={() => setShareData(null)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" onClick={e => e.stopPropagation()}>
             <p className="share-title" id="share-modal-title">Share Save Card</p>
 
-            {/* Anteprima foto se presente */}
+            {/* Photo preview if present */}
             {shareData.photo && (
               <div style={{ marginBottom: '12px', borderRadius: '10px', overflow: 'hidden', maxHeight: '150px' }}>
                 <img src={shareData.photo} alt="Table photo preview" style={{ width: '100%', height: '150px', objectFit: 'cover' }} />
@@ -1502,7 +1511,7 @@ export default function App() {
             )}
 
             <div className="share-btns">
-              {/* Pulsante WhatsApp */}
+              {/* WhatsApp Button */}
               <a
                 className="share-btn share-wa"
                 href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
@@ -1512,7 +1521,7 @@ export default function App() {
                 <FontAwesomeIcon icon={faWhatsapp} aria-hidden="true" /> WhatsApp
               </a>
 
-              {/* Pulsante Telegram */}
+              {/* Telegram Button */}
               <a
                 className="share-btn share-tg"
                 href={`https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(shareData.text)}`}
@@ -1522,23 +1531,7 @@ export default function App() {
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
 
-              {/* Pulsante Download Foto (se presente) */}
-              {shareData.photo && (
-                <button
-                  className="share-btn share-copy"
-                  onClick={() => {
-                    const a = document.createElement('a');
-                    a.href = shareData.photo!;
-                    a.download = `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-table.jpg`;
-                    a.click();
-                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Foto del tavolo scaricata!');
-                  }}
-                >
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Scarica Foto Tavolo
-                </button>
-              )}
-
-              {/* Pulsante Invia Foto + Testo direttamente nell'App */}
+              {/* Native share with photo attachment */}
               {shareData.photo && (
                 <button
                   className="share-btn share-copy"
@@ -1552,29 +1545,45 @@ export default function App() {
                           files: [file]
                         });
                         setShareData(null);
-                      } catch { /* annullato dall'utente */ }
+                      } catch { /* cancelled by user */ }
                     } else {
-                      showToastMsg(<FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />, 'Usa "Scarica Foto Tavolo" per allegarla su WhatsApp');
+                      showToastMsg(<FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />, 'Use "Download Photo" to attach it in chat');
                     }
                   }}
                 >
-                  <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Invia Foto + Testo a App
+                  <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Share Photo & Text
                 </button>
               )}
 
-              {/* Copia Link e Testo */}
+              {/* Download photo button if present */}
+              {shareData.photo && (
+                <button
+                  className="share-btn share-copy"
+                  onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = shareData.photo!;
+                    a.download = `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-table.jpg`;
+                    a.click();
+                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Photo downloaded!');
+                  }}
+                >
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Download Photo
+                </button>
+              )}
+
+              {/* Copy Link & Text */}
               <button
                 className="share-btn share-copy"
                 onClick={async () => {
                   try { await navigator.clipboard.writeText(shareData.text); } catch { /* ignore */ }
-                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copiato Link & Testo!'); 
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copied Link & Text!'); 
                   setShareData(null);
                 }}
               >                
-                <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copia Link & Testo
+                <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copy Link & Text
               </button>
             </div>
-            <button className="share-close" onClick={() => setShareData(null)}>Annulla</button>
+            <button className="share-close" onClick={() => setShareData(null)}>Cancel</button>
           </div>
         </div>
       )}
