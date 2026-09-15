@@ -1181,7 +1181,7 @@ const timeAgo = (ts: number) => {
             </button>
           </div>
           <div className="about-hero">
-            <img src="/pwa-512x512.png" alt="PackAway Logo" className="about-ico" />
+            <img src="/logo-big.png" alt="PackAway Logo" className="about-ico" />
             <h1 className="about-title">PackAway</h1>
             <p className="about-tag">Leave the table. Keep the game.</p>
           </div>

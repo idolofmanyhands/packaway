@@ -957,7 +957,7 @@ code {
 
 /* ── ABOUT SCREEN ── */
 .about-hero { text-align: center; padding: 24px 16px; }
-.about-ico { width: 128px; height: 128px; object-fit: contain; margin: 0 auto; display: block; }
+.about-ico { width: 128px; height: 128px; object-fit: contain; margin: 0 auto 8px; display: block; }
 .about-title { font-size: 26px; font-weight: 800; color: var(--color-text-primary); margin-bottom: 0; margin-top: -8px;}
 .about-tag { font-size: 14px; color: var(--color-text-muted); }
 .about-body { padding: 0 16px 36px; display: flex; flex-direction: column; gap: 16px; }
