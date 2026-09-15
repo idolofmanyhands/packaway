@@ -30,33 +30,58 @@ import {
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
 import { faWhatsapp, faTelegram } from '@fortawesome/free-brands-svg-icons';
 
-
-/* ── THEME-AWARE PALETTES ──
-   Same hue order in both arrays so position (index) = identity/pattern,
-   regardless of which theme a save was originally created in.
-   DARK: Tailwind *-400 shades — bright, high contrast on near-black backgrounds.
-   LIGHT: Tailwind *-700 shades — dark/saturated, WCAG AA contrast (~4.5:1+) on white. */
+/* ── THEME-AWARE PALETTES ── */
 const PALETTE_DARK = ['#FB923C', '#FBBF24', '#F87171', '#F472B6', '#C084FC', '#818CF8', '#2DD4BF', '#4ADE80', '#A3E635', '#94A3B8', '#38BDF8', '#E879F9', '#FB7185', '#A8A29E'];
 const PALETTE_LIGHT = ['#C2410C', '#B45309', '#B91C1C', '#BE185D', '#7E22CE', '#4338CA', '#0F766E', '#15803D', '#4D7C0F', '#334155', '#0369A1', '#A21CAF', '#BE123C', '#44403C'];
 
-// Precomputed map for O(1) color index lookups instead of running indexOf on every render
 const COLOR_INDEX_MAP = new Map<string, number>();
 PALETTE_DARK.forEach((hex, i) => COLOR_INDEX_MAP.set(hex.toLowerCase(), i));
 PALETTE_LIGHT.forEach((hex, i) => COLOR_INDEX_MAP.set(hex.toLowerCase(), i));
 
-// Finds the color's "slot" (0-9) regardless of which palette it came from
 const getColorIndex = (hex: string): number => {
   if (!hex) return 0;
   return COLOR_INDEX_MAP.get(hex.toLowerCase()) ?? 0;
 };
 
-// Pattern index is theme-independent — same slot always gets the same pattern
 const getPatternIndex = (hex: string): number => getColorIndex(hex) + 1;
 
 interface GameSuggestion {
   n: string;
   cat: 'Boardgame' | 'RPG';
 }
+
+/* Helper functions for portable URL sharing across devices */
+const encodeSaveForShare = (save: GameSave): string => {
+  const payload = {
+    name: save.name,
+    scenario: save.scenario || '',
+    color: save.color,
+    next: save.next || '',
+    round: save.round || 1,
+    npid: save.npid ?? null,
+    players: save.players || [],
+    cl: save.cl || []
+  };
+  try {
+    const jsonStr = JSON.stringify(payload);
+    const base64 = btoa(encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
+    return encodeURIComponent(base64);
+  } catch {
+    return '';
+  }
+};
+
+const decodeSaveFromShare = (encodedStr: string): Partial<GameSave> | null => {
+  try {
+    const base64 = decodeURIComponent(encodedStr);
+    const jsonStr = decodeURIComponent(
+      Array.prototype.map.call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
+    return JSON.parse(jsonStr);
+  } catch {
+    return null;
+  }
+};
 
 const RPG_SET = new Set([
   '7th Sea', 'Advanced Dungeons & Dragons (1st Edition)', 'Advanced Dungeons & Dragons (2nd Edition)',
@@ -169,7 +194,6 @@ const SUGGESTIONS: GameSuggestion[] = ALL_GAMES_LIST.map(name => ({
   cat: RPG_SET.has(name) ? 'RPG' : 'Boardgame'
 }));
 
-// Sample data colors now use PALETTE_DARK hex values (app defaults to dark mode)
 const SAMPLE_GAMES: GameSave[] = [
   {
     id: 'hq', name: 'HeroQuest', scenario: "Kellar's Keep · Quest 7",
@@ -204,7 +228,6 @@ export default function App() {
   const [sortMode, setSortMode] = useState<'date' | 'name'>('date');
   const [selectedSaveId, setSelectedSaveId] = useState<string | null>(null);
   
-  // React.ReactNode allows string, emoji, or JSX elements (like <FontAwesomeIcon icon={fa-copy} aria-hidden="true" />)
   const [toast, setToast] = useState<{ icon: React.ReactNode; msg: string } | null>(null);
   
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
@@ -232,11 +255,9 @@ export default function App() {
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const checklistRef = useRef<HTMLDivElement>(null);
 
-  // Active theme palette + color resolver
   const PALETTE = darkMode ? PALETTE_DARK : PALETTE_LIGHT;
   const resolveColor = (hex: string) => PALETTE[getColorIndex(hex)];
 
-  // Dynamic Visual Viewport listener
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
 
@@ -259,7 +280,6 @@ export default function App() {
     };
   }, []);
 
-  // Fetch saves efficiently from IndexedDB without expensive JSON parse/stringify cycles
   const saves: GameSave[] = useLiveQuery(async () => {
     const items = await db.saves.toArray();
     return items.map(item => ({
@@ -278,7 +298,6 @@ export default function App() {
     }));
   }) || [];
 
-  // Native Routing
   const setScreen = (s: 'home' | 'resume' | 'form' | 'about', push = true) => {
     if (push) {
       try { window.history.pushState({ screen: s }, ''); } catch { /* ignore */ }
@@ -286,34 +305,64 @@ export default function App() {
     setScreenState(s);
   };
 
+  // Enhanced routing for Deep Links and Portable Import links
   useEffect(() => {
-    const hash = window.location.hash;
-    if (hash.startsWith('#/save/')) {
-      const saveId = hash.replace('#/save/', '');
-      setSelectedSaveId(saveId);
-      setScreenState('resume');
-    } else {
-      window.history.replaceState({ screen: 'home' }, '');
-    }
+    const handleHashRouting = async () => {
+      const hash = window.location.hash;
+
+      if (hash.startsWith('#/import/')) {
+        const encoded = hash.replace('#/import/', '');
+        const importedSave = decodeSaveFromShare(encoded);
+        if (importedSave && importedSave.name) {
+          const newId = `save_${Date.now()}`;
+          const newSave: GameSave = {
+            id: newId,
+            name: importedSave.name,
+            scenario: importedSave.scenario || '',
+            color: importedSave.color || PALETTE_DARK[0],
+            hasPhoto: false,
+            lastModified: Date.now(),
+            next: importedSave.next || '',
+            round: importedSave.round || 1,
+            npid: importedSave.npid ?? null,
+            players: importedSave.players || [],
+            cl: importedSave.cl || []
+          };
+          await db.saves.put(newSave);
+          setSelectedSaveId(newId);
+          setScreenState('resume');
+          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported "${newSave.name}"!`);
+          try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newId}`); } catch { /* ignore */ }
+          return;
+        }
+      }
+
+      if (hash.startsWith('#/save/')) {
+        const saveId = hash.replace('#/save/', '');
+        setSelectedSaveId(saveId);
+        setScreenState('resume');
+      } else {
+        try { window.history.replaceState({ screen: 'home' }, ''); } catch { /* ignore */ }
+      }
+    };
+
+    handleHashRouting();
 
     const onPop = (e: PopStateEvent) => setScreenState(e.state?.screen ?? 'home');
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []);
 
-  // Seed Initial Games
   useEffect(() => {
     db.saves.count().then(n => {
       if (n === 0) SAMPLE_GAMES.forEach(g => db.saves.add(g));
     });
   }, []);
 
-  // Theme Sync
   useEffect(() => {
     document.body.classList.toggle('light', !darkMode);
   }, [darkMode]);
 
-  // Scroll checklist into view
   useEffect(() => {
     if (showChecklist) {
       requestAnimationFrame(() => {
@@ -322,7 +371,6 @@ export default function App() {
     }
   }, [showChecklist]);
 
-  // Escape key handler for modals
   useEffect(() => {
     const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareModal || fullscreenImage);
     if (!anyModalOpen) return;
@@ -337,26 +385,24 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [deleteConfirmId, showPhotoModal, shareModal, fullscreenImage]);
 
-  // Toast message shown indefinitely until user taps the close button
   const showToastMsg = (icon: React.ReactNode, msg: string) => {
     setToast({ icon, msg });
   };
 
-const timeAgo = (ts: number) => {
-  const elapsedMs = Date.now() - ts;
-  const minutes = Math.floor(elapsedMs / 60000);
+  const timeAgo = (ts: number) => {
+    const elapsedMs = Date.now() - ts;
+    const minutes = Math.floor(elapsedMs / 60000);
 
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
 
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
 
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-};
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  };
 
-  // Memoized sorted saves list
   const sortedSaves = useMemo(
     () => [...saves].sort((a, b) =>
       sortMode === 'name' ? a.name.localeCompare(b.name) : b.lastModified - a.lastModified
@@ -429,7 +475,11 @@ const timeAgo = (ts: number) => {
   };
 
   const handleShare = async (save: GameSave) => {
-    const deepLink = `${window.location.origin}/#/save/${save.id}`;
+    const sharePayload = encodeSaveForShare(save);
+    const portableLink = sharePayload
+      ? `${window.location.origin}/#/import/${sharePayload}`
+      : `${window.location.origin}/#/save/${save.id}`;
+
     const playerLines = save.players.map(p => {
       const stats = p.stats.map(s =>
         s.type === 'hp' ? `${s.label}: ${s.value}/${s.max}` : `${s.label}: ${s.value}`
@@ -444,7 +494,7 @@ const timeAgo = (ts: number) => {
       playerLines ? `\n👥 Players:\n${playerLines}` : null
     ].filter(Boolean).join('\n');
 
-    const text = `${bodyLines}\n\n🔗 Open Save Point: ${deepLink}`;
+    const text = `${bodyLines}\n\n🔗 Open Save Point: ${portableLink}`;
 
     let imageFile: File | null = null;
     if (save.photo) {
@@ -522,6 +572,7 @@ const timeAgo = (ts: number) => {
     setSelectedSaveId(id);
     setClCompleted({});
     setShowChecklist(false);
+    try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${id}`); } catch { /* ignore */ }
     setScreen('resume');
   };
 
@@ -582,7 +633,9 @@ const timeAgo = (ts: number) => {
         if (Array.isArray(data.saves) && confirm(`Import ${data.saves.length} saves? This replaces current saves.`)) {
           await db.saves.clear();
           for (const item of data.saves) await db.saves.put(item);
-         showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${data.saves.length} save(s)`);
+          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${data.saves.length} save(s)`);
+          setSelectedSaveId(null);
+          try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
           setScreen('home');
         }
       } catch { alert('Invalid backup file.'); }
@@ -590,7 +643,6 @@ const timeAgo = (ts: number) => {
     reader.readAsText(file);
   };
 
-  // Only filter suggestions when dropdown is active & user is typing
   const filteredSuggestions = useMemo(() => {
     if (!ddOpen || !gameName.trim()) return [];
     const lowerName = gameName.toLowerCase();
@@ -598,6 +650,14 @@ const timeAgo = (ts: number) => {
       item.n.toLowerCase().includes(lowerName)
     ).slice(0, 30);
   }, [gameName, ddOpen]);
+
+  const goToHome = () => {
+    setSelectedSaveId(null);
+    if (window.location.hash) {
+      try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
+    }
+    setScreen('home');
+  };
 
   return (
     <div className="phone">
@@ -675,20 +735,26 @@ const timeAgo = (ts: number) => {
                   role="button"
                   tabIndex={0}
                   aria-label={`Open ${g.name}${g.scenario ? ', ' + g.scenario : ''}`}
-                  onClick={() => { setSelectedSaveId(g.id); setShowChecklist(false); setScreen('resume'); }}
+                  onClick={() => {
+                    setSelectedSaveId(g.id);
+                    setShowChecklist(false);
+                    try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${g.id}`); } catch { /* ignore */ }
+                    setScreen('resume');
+                  }}
                   onKeyDown={e => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
-                      setSelectedSaveId(g.id); setShowChecklist(false); setScreen('resume');
+                      setSelectedSaveId(g.id);
+                      setShowChecklist(false);
+                      try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${g.id}`); } catch { /* ignore */ }
+                      setScreen('resume');
                     }
                   }}
                 >
                   <div className="game-card-title">{g.name}</div>
                   {g.scenario && <div className="game-card-scenario" style={{ color: resolveColor(g.color) }}>{g.scenario}</div>}
-                <div className="game-card-timestamp">{timeAgo(g.lastModified)}</div>
+                  <div className="game-card-timestamp">{timeAgo(g.lastModified)}</div>
                 </div>
-                
-                
               </div>
             ))}
           </div>
@@ -702,176 +768,191 @@ const timeAgo = (ts: number) => {
       )}
 
       {/* ══ RESUME SCREEN ══ */}
-      {screen === 'resume' && selectedSave && (
-        <div className="screen active">
-          <div className="nav">
-            <button className="nav-back" onClick={() => setScreen('home')}>
-              <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
-            </button>
-            <div style={{ flex: 1 }} />
-            <div className="nav-acts">
-              <button className="nav-btn" onClick={() => setDeleteConfirmId(selectedSave.id)} title="Delete" aria-label="Delete this save">
-                <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" />
+      {screen === 'resume' && (
+        selectedSave ? (
+          <div className="screen active">
+            <div className="nav">
+              <button className="nav-back" onClick={goToHome}>
+                <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
               </button>
-              <button className="nav-btn" onClick={() => openEditForm(selectedSave)} title="Edit" aria-label="Edit this save">
-                <FontAwesomeIcon icon={faEdit} aria-hidden="true" />
-              </button>
-              <button className="nav-btn" onClick={() => handleShare(selectedSave)} title="Share" aria-label="Share this save">
-                <FontAwesomeIcon icon={faShareNodes} aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-
-          <div className="save-card">
-            {/* PHOTO CONTAINER — shown ONLY if the user loaded/attached a photo */}
-            {Boolean(selectedSave.photo) && (
-              <div
-                className="save-card-photo-container"
-                role="button"
-                tabIndex={0}
-                aria-label="Expand table photo"
-                onClick={() => setFullscreenImage(selectedSave.photo!)}
-                onKeyDown={e => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    setFullscreenImage(selectedSave.photo!);
-                  }
-                }}
-              >
-                <img src={selectedSave.photo} alt={`Table setup for ${selectedSave.name}`} className="w-full h-full object-cover" />
-                <div className="save-card-photo-badge">📷 Tap to expand photo</div>
-              </div>
-            )}
-
-            <div className="save-card-body">
-              {/* Color + pattern accent */}
-              <div
-                className={`save-card-color-accent pattern-overlay swatch-pattern-${getPatternIndex(selectedSave.color)}`}
-                style={{ background: resolveColor(selectedSave.color) }}
-                aria-hidden="true"
-              />
-
-              <div className="save-card-title-block">
-                <h2 className="save-card-title">{selectedSave.name}</h2>
-                {selectedSave.scenario && <p className="save-card-scenario" style={{ color: resolveColor(selectedSave.color) }}>{selectedSave.scenario}</p>}
-                <p className="save-card-date">Saved {timeAgo(selectedSave.lastModified)}</p>
-              </div>
-
-              {/* WHAT'S NEXT */}
-              {selectedSave.next && selectedSave.next.trim() && (
-                <div className="save-card-next-intentions-box">
-                  <p className="save-card-next-label">WHAT'S NEXT</p>
-                  <p className="save-card-next-text-large">{selectedSave.next}</p>
-                </div>
-              )}
-
-              {/* PARTY & SCORES */}
-              {selectedSave.players.length > 0 && (
-                <>
-                  <p className="save-card-section-label"><FontAwesomeIcon icon={faUsers} aria-hidden="true" /> PARTY & SCORES</p>
-                  {selectedSave.players.map(p => {
-                    const isNext = selectedSave.npid != null && p.id === selectedSave.npid;
-                    const hpStats = p.stats.filter(s => s.type === 'hp');
-                    const numStats = p.stats.filter(s => s.type === 'num');
-                    const barColor = resolveColor(selectedSave.color);
-                    const patternIdx = getPatternIndex(selectedSave.color);
-                    return (
-                      <div key={p.id} className="player-recap-block">
-                        <div className="player-recap-name">
-                          {p.name}
-                          {isNext && <span className="player-recap-next-badge">Next</span>}
-                        </div>
-
-                        {hpStats.map(hp => (
-                          <div key={hp.id} className="player-recap-hp-row">
-                            <span className="player-recap-hp-label">{hp.label}</span>
-                            <div
-                              className="player-recap-bar-track"
-                              style={{ borderColor: `${barColor}70` }}
-                              role="progressbar"
-                              aria-label={`${p.name} ${hp.label}`}
-                              aria-valuenow={hp.value}
-                              aria-valuemin={0}
-                              aria-valuemax={hp.max || 1}
-                            >
-                              <div
-                                className={`player-recap-bar-fill pattern-overlay swatch-pattern-${patternIdx}`}
-                                style={{ width: `${Math.round(hp.value / (hp.max || 1) * 100)}%`, background: barColor }}
-                              />
-                            </div>
-                            <span className="player-recap-hp-value">{hp.value}/{hp.max}</span>
-                          </div>
-                        ))}
-
-                        {numStats.map(s => (
-                          <div key={s.id} className="player-recap-score-row">
-                            <span className="player-recap-score-label">{s.label}</span>
-                            <span className="player-recap-score-value">{s.value}</span>
-                          </div>
-                        ))}
-                        <div className="player-recap-note-row">
-                          <span className="player-recap-score-label">Note</span>
-                          {p.note && <span className="player-recap-note">{' '}{p.note}</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </>
-              )}
-
-            </div>
-          </div>
-
-          {/* STICKY RESUME CTA */}
-          {!showChecklist ? (
-            <div className="sticky-cta-bar">
-              <button className="btn-primary" onClick={() => setShowChecklist(true)}>
-                <FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Resume
-              </button>
-            </div>
-          ) : (
-            <div className="checklist-container" ref={checklistRef}>
-              <div className="checklist-header">
-                <span className="save-card-next-label"><FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Board Setup Checklist</span>
-              </div>
-              <div className="checklist-items-list" role="group" aria-label="Board setup checklist">
-                {autoChecklist.map((step, idx) => (
-                  <div
-                    key={idx}
-                    className="checklist-item-row"
-                    role="checkbox"
-                    aria-checked={!!clCompleted[idx]}
-                    tabIndex={0}
-                    onClick={() => setClCompleted(c => ({ ...c, [idx]: !c[idx] }))}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        setClCompleted(c => ({ ...c, [idx]: !c[idx] }));
-                      }
-                    }}
-                  >
-                    <div className={`checklist-checkbox${clCompleted[idx] ? ' done' : ''}`} aria-hidden="true">
-                      <span className="checklist-checkmark-tick">✓</span>
-                    </div>
-                    <span className={`checklist-item-text${clCompleted[idx] ? ' done' : ''}`}>{step}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="sticky-cta-bar">
-                <button className="btn-primary" onClick={() => setScreen('home')}>
-                  <FontAwesomeIcon icon={faDice} aria-hidden="true" /> Back to the table!
+              <div style={{ flex: 1 }} />
+              <div className="nav-acts">
+                <button className="nav-btn" onClick={() => setDeleteConfirmId(selectedSave.id)} title="Delete" aria-label="Delete this save">
+                  <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" />
+                </button>
+                <button className="nav-btn" onClick={() => openEditForm(selectedSave)} title="Edit" aria-label="Edit this save">
+                  <FontAwesomeIcon icon={faEdit} aria-hidden="true" />
+                </button>
+                <button className="nav-btn" onClick={() => handleShare(selectedSave)} title="Share" aria-label="Share this save">
+                  <FontAwesomeIcon icon={faShareNodes} aria-hidden="true" />
                 </button>
               </div>
             </div>
-          )}
-        </div>
+
+            <div className="save-card">
+              {Boolean(selectedSave.photo) && (
+                <div
+                  className="save-card-photo-container"
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Expand table photo"
+                  onClick={() => setFullscreenImage(selectedSave.photo!)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setFullscreenImage(selectedSave.photo!);
+                    }
+                  }}
+                >
+                  <img src={selectedSave.photo} alt={`Table setup for ${selectedSave.name}`} className="w-full h-full object-cover" />
+                  <div className="save-card-photo-badge">📷 Tap to expand photo</div>
+                </div>
+              )}
+
+              <div className="save-card-body">
+                <div
+                  className={`save-card-color-accent pattern-overlay swatch-pattern-${getPatternIndex(selectedSave.color)}`}
+                  style={{ background: resolveColor(selectedSave.color) }}
+                  aria-hidden="true"
+                />
+
+                <div className="save-card-title-block">
+                  <h2 className="save-card-title">{selectedSave.name}</h2>
+                  {selectedSave.scenario && <p className="save-card-scenario" style={{ color: resolveColor(selectedSave.color) }}>{selectedSave.scenario}</p>}
+                  <p className="save-card-date">Saved {timeAgo(selectedSave.lastModified)}</p>
+                </div>
+
+                {selectedSave.next && selectedSave.next.trim() && (
+                  <div className="save-card-next-intentions-box">
+                    <p className="save-card-next-label">WHAT'S NEXT</p>
+                    <p className="save-card-next-text-large">{selectedSave.next}</p>
+                  </div>
+                )}
+
+                {selectedSave.players.length > 0 && (
+                  <>
+                    <p className="save-card-section-label"><FontAwesomeIcon icon={faUsers} aria-hidden="true" /> PARTY & SCORES</p>
+                    {selectedSave.players.map(p => {
+                      const isNext = selectedSave.npid != null && p.id === selectedSave.npid;
+                      const hpStats = p.stats.filter(s => s.type === 'hp');
+                      const numStats = p.stats.filter(s => s.type === 'num');
+                      const barColor = resolveColor(selectedSave.color);
+                      const patternIdx = getPatternIndex(selectedSave.color);
+                      return (
+                        <div key={p.id} className="player-recap-block">
+                          <div className="player-recap-name">
+                            {p.name}
+                            {isNext && <span className="player-recap-next-badge">Next</span>}
+                          </div>
+
+                          {hpStats.map(hp => (
+                            <div key={hp.id} className="player-recap-hp-row">
+                              <span className="player-recap-hp-label">{hp.label}</span>
+                              <div
+                                className="player-recap-bar-track"
+                                style={{ borderColor: `${barColor}70` }}
+                                role="progressbar"
+                                aria-label={`${p.name} ${hp.label}`}
+                                aria-valuenow={hp.value}
+                                aria-valuemin={0}
+                                aria-valuemax={hp.max || 1}
+                              >
+                                <div
+                                  className={`player-recap-bar-fill pattern-overlay swatch-pattern-${patternIdx}`}
+                                  style={{ width: `${Math.round(hp.value / (hp.max || 1) * 100)}%`, background: barColor }}
+                                />
+                              </div>
+                              <span className="player-recap-hp-value">{hp.value}/{hp.max}</span>
+                            </div>
+                          ))}
+
+                          {numStats.map(s => (
+                            <div key={s.id} className="player-recap-score-row">
+                              <span className="player-recap-score-label">{s.label}</span>
+                              <span className="player-recap-score-value">{s.value}</span>
+                            </div>
+                          ))}
+                          <div className="player-recap-note-row">
+                            <span className="player-recap-score-label">Note</span>
+                            {p.note && <span className="player-recap-note">{' '}{p.note}</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+
+              </div>
+            </div>
+
+            {!showChecklist ? (
+              <div className="sticky-cta-bar">
+                <button className="btn-primary" onClick={() => setShowChecklist(true)}>
+                  <FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Resume
+                </button>
+              </div>
+            ) : (
+              <div className="checklist-container" ref={checklistRef}>
+                <div className="checklist-header">
+                  <span className="save-card-next-label"><FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Board Setup Checklist</span>
+                </div>
+                <div className="checklist-items-list" role="group" aria-label="Board setup checklist">
+                  {autoChecklist.map((step, idx) => (
+                    <div
+                      key={idx}
+                      className="checklist-item-row"
+                      role="checkbox"
+                      aria-checked={!!clCompleted[idx]}
+                      tabIndex={0}
+                      onClick={() => setClCompleted(c => ({ ...c, [idx]: !c[idx] }))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setClCompleted(c => ({ ...c, [idx]: !c[idx] }));
+                        }
+                      }}
+                    >
+                      <div className={`checklist-checkbox${clCompleted[idx] ? ' done' : ''}`} aria-hidden="true">
+                        <span className="checklist-checkmark-tick">✓</span>
+                      </div>
+                      <span className={`checklist-item-text${clCompleted[idx] ? ' done' : ''}`}>{step}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="sticky-cta-bar">
+                  <button className="btn-primary" onClick={goToHome}>
+                    <FontAwesomeIcon icon={faDice} aria-hidden="true" /> Back to the table!
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Fallback UI if save point doesn't exist on this device */
+          <div className="screen active">
+            <div className="nav">
+              <button className="nav-back" onClick={goToHome}>
+                <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
+              </button>
+            </div>
+            <div className="save-card" style={{ textAlign: 'center', padding: '2.5rem 1rem' }}>
+              <h2 className="save-card-title">Save Point Not Found</h2>
+              <p style={{ margin: '1rem 0', color: 'var(--color-text-muted)', fontSize: '14px', lineHeight: '1.5' }}>
+                This save point doesn't exist on this device or was deleted.
+              </p>
+              <button className="btn-primary" style={{ marginTop: '1rem' }} onClick={goToHome}>
+                Go to Home
+              </button>
+            </div>
+          </div>
+        )
       )}
 
       {/* ══ FORM SCREEN ══ */}
       {screen === 'form' && (
         <div className="screen active">
           <div className="nav">
-            <button className="nav-back" onClick={() => setScreen('home')}>
+            <button className="nav-back" onClick={goToHome}>
               <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
             </button>
           </div>
@@ -1033,12 +1114,10 @@ const timeAgo = (ts: number) => {
 
                       {p.stats.map((s, sIdx) => (
                         <div key={s.id} className="stat-editor-row">
-                          {/* COL 1: BADGE */}
                           <div className={`stat-type-badge ${s.type}`} aria-hidden="true">
                             {s.type === 'hp' ? <FontAwesomeIcon icon={faBarsProgress} aria-hidden="true" /> : <FontAwesomeIcon icon={faHashtag} aria-hidden="true" />}
                           </div>
 
-                          {/* COL 2: LABEL FIELD WITH "LABEL:" INDICATOR */}
                           <div className="stat-label-col">
                             <span className="stat-field-prefix" id={`stat-label-prefix-${s.id}`}>Label:</span>
                             <input
@@ -1050,7 +1129,6 @@ const timeAgo = (ts: number) => {
                             />
                           </div>
 
-                          {/* COL 3: COUNTERS */}
                           <div className="stat-counters-col">
                             {s.type === 'hp' ? (
                               <>
@@ -1176,7 +1254,7 @@ const timeAgo = (ts: number) => {
       {screen === 'about' && (
         <div className="screen active">
           <div className="nav">
-            <button className="nav-back" onClick={() => setScreen('home')}>
+            <button className="nav-back" onClick={goToHome}>
               <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
             </button>
           </div>
@@ -1238,8 +1316,17 @@ const timeAgo = (ts: number) => {
                   if (!deleteConfirmId) return;
                   const id = deleteConfirmId;
                   setDeleteConfirmId(null);
+                  
+                  // Transition to home immediately before executing async delete
+                  if (selectedSaveId === id) {
+                    setSelectedSaveId(null);
+                    setScreen('home', false);
+                    if (window.location.hash) {
+                      try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
+                    }
+                  }
+                  
                   await db.saves.delete(id);
-                  if (selectedSaveId === id) setScreen('home');
                   showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Save point deleted');
                 }}
               >
