@@ -275,9 +275,9 @@ export default function App() {
     };
   }, []);
 
-  // Dropdown fixed positioning
-  useEffect(() => {
-    if (ddOpen && gameNameInputRef.current) {
+  // Update fixed dropdown position on open, input edit, window scroll or resize
+  const updateDropdownPosition = () => {
+    if (gameNameInputRef.current) {
       const rect = gameNameInputRef.current.getBoundingClientRect();
       setDdStyle({
         position: 'fixed',
@@ -285,10 +285,21 @@ export default function App() {
         left: `${rect.left}px`,
         width: `${rect.width}px`,
         zIndex: 9999,
-        maxHeight: '45vh',
+        maxHeight: '40vh',
         overflowY: 'auto',
       });
     }
+  };
+
+  useEffect(() => {
+    if (!ddOpen) return;
+    updateDropdownPosition();
+    window.addEventListener('scroll', updateDropdownPosition, true);
+    window.addEventListener('resize', updateDropdownPosition);
+    return () => {
+      window.removeEventListener('scroll', updateDropdownPosition, true);
+      window.removeEventListener('resize', updateDropdownPosition);
+    };
   }, [ddOpen, gameName]);
 
   const saves: GameSave[] = useLiveQuery(async () => {
@@ -1000,7 +1011,12 @@ export default function App() {
                   aria-expanded={ddOpen && filteredSuggestions.length > 0}
                   aria-controls="game-name-suggestions"
                   autoComplete="off"
-                  onFocus={() => setDdOpen(true)}
+                  onFocus={() => {
+                    setDdOpen(true);
+                    setTimeout(() => {
+                      gameNameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    }, 100);
+                  }}
                   onChange={e => { setGameName(e.target.value); setDdOpen(true); }}
                 />
               </div>
