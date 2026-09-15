@@ -1197,8 +1197,7 @@ const timeAgo = (ts: number) => {
               <p className="about-card-ttl">YOUR DATA</p>
               <div className="data-stat-row">
                 <div className="data-stat-block">
-                  <span className="data-stat">{saves.length}</span>
-                  <span className="data-stat-lbl">saves</span>
+                  <span className="data-stat">{saves.length}</span> <span className="data-stat-lbl">Games saved</span>
                 </div>
               </div>
               <div className="data-btns">
