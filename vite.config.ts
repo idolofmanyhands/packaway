@@ -5,7 +5,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   server: {
-    host: true // Exposes the app to your local Wi-Fi / network
+    host: true
   },
   plugins: [
     react(),
@@ -23,6 +23,8 @@ export default defineConfig({
         orientation: 'portrait',
         start_url: '/',
         scope: '/',
+        // Tells Android/Chrome to open in-scope links inside the PWA, not browser
+        handle_links: 'preferred',
         launch_handler: {
           client_mode: ['focus-existing', 'navigate-new']
         },
