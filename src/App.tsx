@@ -5,7 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faSun,
   faMoon,
-  faCircleInfo,
+  faLeaf,
   faFloppyDisk,
   faChevronLeft,
   faEdit,
@@ -50,7 +50,7 @@ interface GameSuggestion {
   cat: 'Boardgame' | 'RPG';
 }
 
-/* Helper functions for compact, compressed URL sharing across devices */
+/* ── Compact URL encoding for portable sharing ── */
 const encodeSaveForShare = (save: GameSave): string => {
   const compact = {
     i: save.id,
@@ -87,7 +87,6 @@ const decodeSaveFromShare = (encodedStr: string): Partial<GameSave & { originalI
       Array.prototype.map.call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
     );
     const data = JSON.parse(jsonStr);
-
     if (!data) return null;
     return {
       originalId: data.i || data.originalId || data.id,
@@ -262,9 +261,7 @@ export default function App() {
   const [screen, setScreenState] = useState<'home' | 'resume' | 'form' | 'about'>('home');
   const [sortMode, setSortMode] = useState<'date' | 'name'>('date');
   const [selectedSaveId, setSelectedSaveId] = useState<string | null>(null);
-  
   const [toast, setToast] = useState<{ icon: React.ReactNode; msg: string } | null>(null);
-  
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
   const [shareData, setShareData] = useState<{
     text: string;
@@ -292,34 +289,49 @@ export default function App() {
   const [ddOpen, setDdOpen] = useState(false);
   const [clCompleted, setClCompleted] = useState<Record<number, boolean>>({});
 
+  // Dropdown fixed-position state
+  const [ddStyle, setDdStyle] = useState<React.CSSProperties>({});
+
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const checklistRef = useRef<HTMLDivElement>(null);
+  const gameNameInputRef = useRef<HTMLInputElement>(null);
 
   const PALETTE = darkMode ? PALETTE_DARK : PALETTE_LIGHT;
   const resolveColor = (hex: string) => PALETTE[getColorIndex(hex)];
 
+  // Visual Viewport listener
   useEffect(() => {
     if (typeof window === 'undefined' || !window.visualViewport) return;
-
     const handleViewportChange = () => {
       const vv = window.visualViewport!;
       const offset = window.innerHeight - vv.height - vv.offsetTop;
-      document.documentElement.style.setProperty(
-        '--visual-viewport-bottom',
-        `${Math.max(0, offset)}px`
-      );
+      document.documentElement.style.setProperty('--visual-viewport-bottom', `${Math.max(0, offset)}px`);
     };
-
     window.visualViewport.addEventListener('resize', handleViewportChange);
     window.visualViewport.addEventListener('scroll', handleViewportChange);
     handleViewportChange();
-
     return () => {
       window.visualViewport?.removeEventListener('resize', handleViewportChange);
       window.visualViewport?.removeEventListener('scroll', handleViewportChange);
     };
   }, []);
+
+  // Reposition dropdown whenever it opens or suggestions change
+  useEffect(() => {
+    if (ddOpen && gameNameInputRef.current) {
+      const rect = gameNameInputRef.current.getBoundingClientRect();
+      setDdStyle({
+        position: 'fixed',
+        top: `${rect.bottom + 4}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
+        zIndex: 9999,
+        maxHeight: '45vh',
+        overflowY: 'auto',
+      });
+    }
+  }, [ddOpen, gameName]);
 
   const saves: GameSave[] = useLiveQuery(async () => {
     const items = await db.saves.toArray();
@@ -346,14 +358,14 @@ export default function App() {
     setScreenState(s);
   };
 
-  // Smart Router: Handles PWA launch, Deep Links, Share Target & Import Conflicts
+  // Smart Router: PWA path links, hash links, Share Target, Import Conflicts
   useEffect(() => {
     const handleHashRouting = async () => {
       let hash = window.location.hash;
-      let pathname = window.location.pathname;
+      const pathname = window.location.pathname;
       const search = window.location.search;
 
-      // Handle Share Target query params
+      // Share Target query params
       if (search.includes('text=') || search.includes('url=')) {
         const params = new URLSearchParams(search);
         const textParam = params.get('text') || params.get('url') || '';
@@ -361,13 +373,14 @@ export default function App() {
         if (match) hash = `#/${match[1]}/${match[2]}`;
       }
 
-      // Handle custom scheme web+packaway://
+      // Custom scheme web+packaway://
       if (hash.includes('web+packaway:')) {
         hash = hash.replace(/.*web\+packaway:(?:\/\/)*/i, '');
         if (!hash.startsWith('#/')) hash = '#/import/' + hash;
       }
 
-      // Handle PWA Path links like /import/<data> or /save/<id>
+      // PWA path-based links: /import/<data> or /save/<id>
+      // These are intercepted by Android WebAPK when scope matches
       if (!hash || hash === '#' || hash === '#/') {
         if (pathname.startsWith('/import/')) {
           hash = `#${pathname}`;
@@ -385,9 +398,10 @@ export default function App() {
           const importedScenario = imported.scenario || '';
           const allSaves = await db.saves.toArray();
 
-          const existing = allSaves.find(s => 
+          const existing = allSaves.find(s =>
             (imported.originalId && s.id === imported.originalId) ||
-            (s.name.toLowerCase() === importedName.toLowerCase() && (s.scenario || '').toLowerCase() === importedScenario.toLowerCase())
+            (s.name.toLowerCase() === importedName.toLowerCase() &&
+              (s.scenario || '').toLowerCase() === importedScenario.toLowerCase())
           );
 
           const incomingSave: GameSave = {
@@ -405,14 +419,16 @@ export default function App() {
           };
 
           if (existing) {
-            if (existing.lastModified === incomingSave.lastModified && JSON.stringify(existing.players) === JSON.stringify(incomingSave.players)) {
+            if (
+              existing.lastModified === incomingSave.lastModified &&
+              JSON.stringify(existing.players) === JSON.stringify(incomingSave.players)
+            ) {
               setSelectedSaveId(existing.id);
               setScreenState('resume');
-              showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `You already have this save point!`);
+              showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'You already have this save point!');
               try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${existing.id}`); } catch { /* ignore */ }
               return;
             }
-
             setImportConflict({ existingSave: existing, incomingSave });
             return;
           }
@@ -431,7 +447,7 @@ export default function App() {
         setSelectedSaveId(saveId);
         setScreenState('resume');
       } else {
-        try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
+        try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
       }
     };
 
@@ -482,13 +498,10 @@ export default function App() {
   const timeAgo = (ts: number) => {
     const elapsedMs = Date.now() - ts;
     const minutes = Math.floor(elapsedMs / 60000);
-
     if (minutes < 1) return 'just now';
     if (minutes < 60) return `${minutes}m ago`;
-
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours}h ago`;
-
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
   };
@@ -508,64 +521,27 @@ export default function App() {
   const autoChecklist = useMemo(() => {
     if (!selectedSave) return [];
     const list: React.ReactNode[] = [];
-
     selectedSave.players.forEach(p => {
       p.stats.filter(s => s.type === 'hp').forEach(hp => {
-        list.push(
-          <>
-            <strong>Restore</strong> {p.name} to <code>{hp.value}/{hp.max}</code> {hp.label}
-          </>
-        );
+        list.push(<><strong>Restore</strong> {p.name} to <code>{hp.value}/{hp.max}</code> {hp.label}</>);
       });
-
       if (p.note) {
-        list.push(
-          <>
-            <strong>Note</strong> for {p.name}: "{p.note}"
-          </>
-        );
+        list.push(<><strong>Note</strong> for {p.name}: "{p.note}"</>);
       }
     });
-
     if (selectedSave.round > 0) {
-      list.push(
-        <>
-          <strong>Set</strong> Round counter to <code>{selectedSave.round}</code>
-        </>
-      );
+      list.push(<><strong>Set</strong> Round counter to <code>{selectedSave.round}</code></>);
     }
-
     if (selectedSave.next && selectedSave.next.trim()) {
-      list.push(
-        <>
-          <strong>Read</strong>: "{selectedSave.next}"
-        </>
-      );
+      list.push(<><strong>Read</strong>: "{selectedSave.next}"</>);
     }
-
     return list.length ? list : selectedSave.cl;
   }, [selectedSave]);
 
-  const dataUrlToFile = (dataUrl: string, filename: string): File | null => {
-    try {
-      const parts = dataUrl.split(',');
-      if (parts.length < 2) return null;
-      const mimeMatch = parts[0].match(/:(.*?);/);
-      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const bstr = atob(parts[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while (n--) {
-        u8arr[n] = bstr.charCodeAt(n);
-      }
-      return new File([u8arr], filename, { type: mime });
-    } catch {
-      return null;
-    }
-  };
 
   const handleShare = (save: GameSave) => {
     const sharePayload = encodeSaveForShare(save);
+    // Path-based URL so Android WebAPK can intercept it
     const portableLink = sharePayload
       ? `${window.location.origin}/import/${sharePayload}`
       : `${window.location.origin}/#/save/${save.id}`;
@@ -585,13 +561,7 @@ export default function App() {
     ].filter(Boolean).join('\n');
 
     const text = `${bodyLines}\n\n🔗 Open Save Point: ${portableLink}`;
-
-    setShareData({
-      text,
-      photo: save.photo,
-      title: save.name,
-      save
-    });
+    setShareData({ text, photo: save.photo, title: save.name, save });
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -623,8 +593,7 @@ export default function App() {
     setNextIntentions(''); setFormColor(PALETTE[5]);
     setHasPhoto(false); setPhotoData(undefined);
     setRound(1); setNextPlayerId(null);
-    setPlayers([]);
-    setShowPlayersExp(true);
+    setPlayers([]); setShowPlayersExp(true);
     setScreen('form');
   };
 
@@ -715,7 +684,7 @@ export default function App() {
           for (const item of data.saves) await db.saves.put(item);
           showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${data.saves.length} save(s)`);
           setSelectedSaveId(null);
-          try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
+          try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
           setScreen('home');
         }
       } catch { alert('Invalid backup file.'); }
@@ -726,16 +695,12 @@ export default function App() {
   const filteredSuggestions = useMemo(() => {
     if (!ddOpen || !gameName.trim()) return [];
     const lowerName = gameName.toLowerCase();
-    return SUGGESTIONS.filter(item =>
-      item.n.toLowerCase().includes(lowerName)
-    ).slice(0, 30);
+    return SUGGESTIONS.filter(item => item.n.toLowerCase().includes(lowerName)).slice(0, 30);
   }, [gameName, ddOpen]);
 
   const goToHome = () => {
     setSelectedSaveId(null);
-    if (window.location.hash) {
-      try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
-    }
+    try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
     setScreen('home');
   };
 
@@ -748,18 +713,12 @@ export default function App() {
           <div className="home-header">
             <div className="home-header-row">
               <div className="home-logo">
-                <img
-                  src="/logo.png"
-                  alt="PackAway"
-                  className="home-logo-image"
-                />
-
+                <img src="/logo.png" alt="PackAway" className="home-logo-image" />
                 <div className="logo-text">
                   <span className="logo-app-name">PackAway</span>
                   <p className="home-tagline">Pack it away. Pick it up later.</p>
                 </div>
               </div>
-
               <div className="header-action-buttons">
                 <button
                   className="header-icon-button"
@@ -767,20 +726,17 @@ export default function App() {
                   title="Toggle theme"
                   aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
                 >
-                  {darkMode ? (
-                    <FontAwesomeIcon icon={faSun} aria-hidden="true" />
-                  ) : (
-                    <FontAwesomeIcon icon={faMoon} aria-hidden="true" />
-                  )}
+                  {darkMode
+                    ? <FontAwesomeIcon icon={faSun} aria-hidden="true" />
+                    : <FontAwesomeIcon icon={faMoon} aria-hidden="true" />}
                 </button>
-
                 <button
                   className="header-icon-button"
                   onClick={() => setScreen('about')}
                   title="About"
                   aria-label="About PackAway"
                 >
-                  <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />
+                  <FontAwesomeIcon icon={faLeaf} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -789,16 +745,8 @@ export default function App() {
           <div className="section-header-row">
             <div className="section-label-small" id="saves-list-label">SAVES ({saves.length})</div>
             <div className="sort-toggle-group" role="group" aria-label="Sort saves">
-              <button
-                className={`sort-button${sortMode === 'date' ? ' on' : ''}`}
-                aria-pressed={sortMode === 'date'}
-                onClick={() => setSortMode('date')}
-              >Recent</button>
-              <button
-                className={`sort-button${sortMode === 'name' ? ' on' : ''}`}
-                aria-pressed={sortMode === 'name'}
-                onClick={() => setSortMode('name')}
-              >A-Z</button>
+              <button className={`sort-button${sortMode === 'date' ? ' on' : ''}`} aria-pressed={sortMode === 'date'} onClick={() => setSortMode('date')}>Recent</button>
+              <button className={`sort-button${sortMode === 'name' ? ' on' : ''}`} aria-pressed={sortMode === 'name'} onClick={() => setSortMode('name')}>A-Z</button>
             </div>
           </div>
 
@@ -878,10 +826,7 @@ export default function App() {
                   aria-label="Expand table photo"
                   onClick={() => setFullscreenImage(selectedSave.photo!)}
                   onKeyDown={e => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      setFullscreenImage(selectedSave.photo!);
-                    }
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setFullscreenImage(selectedSave.photo!); }
                   }}
                 >
                   <img src={selectedSave.photo} alt={`Table setup for ${selectedSave.name}`} className="w-full h-full object-cover" />
@@ -895,7 +840,6 @@ export default function App() {
                   style={{ background: resolveColor(selectedSave.color) }}
                   aria-hidden="true"
                 />
-
                 <div className="save-card-title-block">
                   <h2 className="save-card-title">{selectedSave.name}</h2>
                   {selectedSave.scenario && <p className="save-card-scenario" style={{ color: resolveColor(selectedSave.color) }}>{selectedSave.scenario}</p>}
@@ -924,28 +868,15 @@ export default function App() {
                             {p.name}
                             {isNext && <span className="player-recap-next-badge">Next</span>}
                           </div>
-
                           {hpStats.map(hp => (
                             <div key={hp.id} className="player-recap-hp-row">
                               <span className="player-recap-hp-label">{hp.label}</span>
-                              <div
-                                className="player-recap-bar-track"
-                                style={{ borderColor: `${barColor}70` }}
-                                role="progressbar"
-                                aria-label={`${p.name} ${hp.label}`}
-                                aria-valuenow={hp.value}
-                                aria-valuemin={0}
-                                aria-valuemax={hp.max || 1}
-                              >
-                                <div
-                                  className={`player-recap-bar-fill pattern-overlay swatch-pattern-${patternIdx}`}
-                                  style={{ width: `${Math.round(hp.value / (hp.max || 1) * 100)}%`, background: barColor }}
-                                />
+                              <div className="player-recap-bar-track" style={{ borderColor: `${barColor}70` }} role="progressbar" aria-label={`${p.name} ${hp.label}`} aria-valuenow={hp.value} aria-valuemin={0} aria-valuemax={hp.max || 1}>
+                                <div className={`player-recap-bar-fill pattern-overlay swatch-pattern-${patternIdx}`} style={{ width: `${Math.round(hp.value / (hp.max || 1) * 100)}%`, background: barColor }} />
                               </div>
                               <span className="player-recap-hp-value">{hp.value}/{hp.max}</span>
                             </div>
                           ))}
-
                           {numStats.map(s => (
                             <div key={s.id} className="player-recap-score-row">
                               <span className="player-recap-score-label">{s.label}</span>
@@ -961,7 +892,6 @@ export default function App() {
                     })}
                   </>
                 )}
-
               </div>
             </div>
 
@@ -986,10 +916,7 @@ export default function App() {
                       tabIndex={0}
                       onClick={() => setClCompleted(c => ({ ...c, [idx]: !c[idx] }))}
                       onKeyDown={e => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          setClCompleted(c => ({ ...c, [idx]: !c[idx] }));
-                        }
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setClCompleted(c => ({ ...c, [idx]: !c[idx] })); }
                       }}
                     >
                       <div className={`checklist-checkbox${clCompleted[idx] ? ' done' : ''}`} aria-hidden="true">
@@ -1008,7 +935,6 @@ export default function App() {
             )}
           </div>
         ) : (
-          /* Fallback UI if save point doesn't exist on this device */
           <div className="screen active">
             <div className="nav">
               <button className="nav-back" onClick={goToHome}>
@@ -1038,14 +964,8 @@ export default function App() {
           </div>
 
           <div className="form-body">
-            <input
-              type="file" accept="image/*" capture="environment"
-              ref={cameraInputRef} onChange={handlePhotoUpload} className="hidden"
-            />
-            <input
-              type="file" accept="image/*"
-              ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden"
-            />
+            <input type="file" accept="image/*" capture="environment" ref={cameraInputRef} onChange={handlePhotoUpload} className="hidden" />
+            <input type="file" accept="image/*" ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden" />
 
             <div
               className={`photo-upload-zone${hasPhoto ? ' taken' : ''}`}
@@ -1054,10 +974,7 @@ export default function App() {
               aria-label={!photoData ? 'Attach a table photo' : undefined}
               onClick={() => !photoData && setShowPhotoModal(true)}
               onKeyDown={e => {
-                if (!photoData && (e.key === 'Enter' || e.key === ' ')) {
-                  e.preventDefault();
-                  setShowPhotoModal(true);
-                }
+                if (!photoData && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setShowPhotoModal(true); }
               }}
             >
               {photoData && <img src={photoData} alt="Table setup preview" className="photo-zone-bg-image object-cover w-full h-full" />}
@@ -1094,21 +1011,19 @@ export default function App() {
                     aria-label={`Color option ${idx + 1}`}
                     aria-pressed={formColor === hex}
                   >
-                    <div
-                      className={`color-swatch-dot pattern-overlay swatch-pattern-${idx + 1}`}
-                      style={{ background: hex }}
-                    />
+                    <div className={`color-swatch-dot pattern-overlay swatch-pattern-${idx + 1}`} style={{ background: hex }} />
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* GAME NAME */}
+            {/* GAME NAME with fixed dropdown */}
             <div className="game-title-input-wrap">
               <div className="md-field">
                 <label className="md-label" htmlFor="game-name-input">Game Name</label>
                 <input
                   id="game-name-input"
+                  ref={gameNameInputRef}
                   className="md-input"
                   value={gameName}
                   role="combobox"
@@ -1120,65 +1035,28 @@ export default function App() {
                 />
               </div>
               <p className="form-field-hint">Type to search or pick from the list below</p>
-              {ddOpen && filteredSuggestions.length > 0 && (
-                <div className="game-suggestions-dropdown block" id="game-name-suggestions" role="listbox">
-                  <div className="dropdown-suggestions-list">
-                    {filteredSuggestions.map(item => (
-                      <div
-                        key={item.n}
-                        className="dropdown-suggestion-item"
-                        role="option"
-                        aria-selected={gameName === item.n}
-                        tabIndex={0}
-                        onMouseDown={e => e.preventDefault()}
-                        onClick={() => { setGameName(item.n); setDdOpen(false); }}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            setGameName(item.n); setDdOpen(false);
-                          }
-                        }}
-                      >
-                        <span className="dropdown-suggestion-name">{item.n}</span>
-                        <span className={`dropdown-suggestion-category ${item.cat.toLowerCase()}`}>{item.cat}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* SCENARIO */}
             <div className="md-field">
               <label className="md-label" htmlFor="scenario-input">Scenario / Subtitle</label>
-              <input
-                id="scenario-input"
-                className="md-input"
-                value={scenario}
-                onChange={e => setScenario(e.target.value)}
-              />
+              <input id="scenario-input" className="md-input" value={scenario} onChange={e => setScenario(e.target.value)} />
             </div>
             <p className="form-field-hint">e.g. Round 3, Quest 7 (optional)</p>
 
             {/* WHAT'S NEXT */}
             <div className="md-field" style={{ marginBottom: '4px' }}>
               <label className="md-label" htmlFor="next-input">What's Next</label>
-              <textarea
-                id="next-input"
-                className="md-textarea"
-                rows={3}
-                value={nextIntentions}
-                onChange={e => setNextIntentions(e.target.value)}
-              />
+              <textarea id="next-input" className="md-textarea" rows={3} value={nextIntentions} onChange={e => setNextIntentions(e.target.value)} />
             </div>
             <p className="form-field-hint">What were you about to do? One sentence, written for yourself in three weeks.</p>
+
             <p className="save-card-section-label" id="players-section-label"><FontAwesomeIcon icon={faUsers} aria-hidden="true" /> PARTY & SCORES</p>
             <div className="form-expandable-section">
               {showPlayersExp && (
                 <div className="expandable-section-content open" id="players-section-content">
                   {players.map((p, pIdx) => (
                     <div key={p.id} className="player-editor-card">
-
                       <div className="player-editor-header">
                         <input
                           className="player-name-input"
@@ -1197,18 +1075,10 @@ export default function App() {
                           <div className={`stat-type-badge ${s.type}`} aria-hidden="true">
                             {s.type === 'hp' ? <FontAwesomeIcon icon={faBarsProgress} aria-hidden="true" /> : <FontAwesomeIcon icon={faHashtag} aria-hidden="true" />}
                           </div>
-
                           <div className="stat-label-col">
                             <span className="stat-field-prefix" id={`stat-label-prefix-${s.id}`}>Label:</span>
-                            <input
-                              className="stat-label-input"
-                              value={s.label}
-                              placeholder={s.type === 'hp' ? 'HP' : 'Score'}
-                              aria-labelledby={`stat-label-prefix-${s.id}`}
-                              onChange={e => updateStatLabel(pIdx, sIdx, e.target.value)}
-                            />
+                            <input className="stat-label-input" value={s.label} placeholder={s.type === 'hp' ? 'HP' : 'Score'} aria-labelledby={`stat-label-prefix-${s.id}`} onChange={e => updateStatLabel(pIdx, sIdx, e.target.value)} />
                           </div>
-
                           <div className="stat-counters-col">
                             {s.type === 'hp' ? (
                               <>
@@ -1216,28 +1086,15 @@ export default function App() {
                                   <span className="stat-sub-label" id={`stat-now-${s.id}`}>now</span>
                                   <div className="stat-counter-group">
                                     <button type="button" className="stat-counter-btn" aria-label={`Decrease ${s.label || 'HP'} current value`} onClick={() => updateStatValue(pIdx, sIdx, 'value', -1)}>−</button>
-                                    <input
-                                      type="number"
-                                      className="stat-counter-input"
-                                      value={s.value}
-                                      aria-labelledby={`stat-now-${s.id}`}
-                                      onChange={e => setDirectStatValue(pIdx, sIdx, 'value', parseInt(e.target.value) || 0)}
-                                    />
+                                    <input type="number" className="stat-counter-input" value={s.value} aria-labelledby={`stat-now-${s.id}`} onChange={e => setDirectStatValue(pIdx, sIdx, 'value', parseInt(e.target.value) || 0)} />
                                     <button type="button" className="stat-counter-btn" aria-label={`Increase ${s.label || 'HP'} current value`} onClick={() => updateStatValue(pIdx, sIdx, 'value', 1)}>+</button>
                                   </div>
                                 </div>
-
                                 <div className="stat-counter-subrow">
                                   <span className="stat-sub-label" id={`stat-max-${s.id}`}>max</span>
                                   <div className="stat-counter-group">
                                     <button type="button" className="stat-counter-btn" aria-label={`Decrease ${s.label || 'HP'} max value`} onClick={() => updateStatValue(pIdx, sIdx, 'max', -1)}>−</button>
-                                    <input
-                                      type="number"
-                                      className="stat-counter-input"
-                                      value={s.max || 1}
-                                      aria-labelledby={`stat-max-${s.id}`}
-                                      onChange={e => setDirectStatValue(pIdx, sIdx, 'max', parseInt(e.target.value) || 1)}
-                                    />
+                                    <input type="number" className="stat-counter-input" value={s.max || 1} aria-labelledby={`stat-max-${s.id}`} onChange={e => setDirectStatValue(pIdx, sIdx, 'max', parseInt(e.target.value) || 1)} />
                                     <button type="button" className="stat-counter-btn" aria-label={`Increase ${s.label || 'HP'} max value`} onClick={() => updateStatValue(pIdx, sIdx, 'max', 1)}>+</button>
                                   </div>
                                 </div>
@@ -1246,19 +1103,12 @@ export default function App() {
                               <div className="stat-counter-subrow">
                                 <div className="stat-counter-group">
                                   <button type="button" className="stat-counter-btn" aria-label={`Decrease ${s.label || 'score'}`} onClick={() => updateStatValue(pIdx, sIdx, 'value', -1)}>−</button>
-                                  <input
-                                    type="number"
-                                    className="stat-counter-input"
-                                    value={s.value}
-                                    aria-label={s.label || 'Score'}
-                                    onChange={e => setDirectStatValue(pIdx, sIdx, 'value', parseInt(e.target.value) || 0)}
-                                  />
+                                  <input type="number" className="stat-counter-input" value={s.value} aria-label={s.label || 'Score'} onChange={e => setDirectStatValue(pIdx, sIdx, 'value', parseInt(e.target.value) || 0)} />
                                   <button type="button" className="stat-counter-btn" aria-label={`Increase ${s.label || 'score'}`} onClick={() => updateStatValue(pIdx, sIdx, 'value', 1)}>+</button>
                                 </div>
                               </div>
                             )}
                           </div>
-
                           <button type="button" className="stat-delete-btn" aria-label={`Remove ${s.label || 'stat'}`} onClick={() => deleteStat(pIdx, sIdx)}>×</button>
                         </div>
                       ))}
@@ -1278,13 +1128,7 @@ export default function App() {
 
                       <div className="player-notes-editor-wrap">
                         <label className="player-notes-label" htmlFor={`player-notes-${p.id}`}>PLAYER NOTES</label>
-                        <textarea
-                          id={`player-notes-${p.id}`}
-                          className="player-notes-textarea"
-                          rows={2}
-                          value={p.note || ''}
-                          onChange={e => { const c = [...players]; c[pIdx].note = e.target.value; setPlayers(c); }}
-                        />
+                        <textarea id={`player-notes-${p.id}`} className="player-notes-textarea" rows={2} value={p.note || ''} onChange={e => { const c = [...players]; c[pIdx].note = e.target.value; setPlayers(c); }} />
                         <p className="form-field-hint">Items, conditions, reminders…</p>
                       </div>
                     </div>
@@ -1295,7 +1139,6 @@ export default function App() {
                     + Add player
                   </button>
 
-                  {/* NEXT TURN SELECTOR */}
                   <div className="next-turn-wrap">
                     <p className="save-card-section-label" id="next-turn-label"><FontAwesomeIcon icon={faArrowDownWideShort} aria-hidden="true" />Next turn (optional)</p>
                     {players.length === 0 ? (
@@ -1330,6 +1173,43 @@ export default function App() {
         </div>
       )}
 
+      {/* ══ GAME NAME DROPDOWN — Fixed to viewport, never clipped by sticky CTA ══ */}
+      {screen === 'form' && ddOpen && filteredSuggestions.length > 0 && (
+        <>
+          {/* Invisible backdrop to dismiss */}
+          <div
+            style={{ position: 'fixed', inset: 0, zIndex: 9998 }}
+            onClick={() => setDdOpen(false)}
+          />
+          <div
+            className="game-suggestions-dropdown block"
+            id="game-name-suggestions"
+            role="listbox"
+            style={ddStyle}
+          >
+            <div className="dropdown-suggestions-list">
+              {filteredSuggestions.map(item => (
+                <div
+                  key={item.n}
+                  className="dropdown-suggestion-item"
+                  role="option"
+                  aria-selected={gameName === item.n}
+                  tabIndex={0}
+                  onMouseDown={e => e.preventDefault()}
+                  onClick={() => { setGameName(item.n); setDdOpen(false); }}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setGameName(item.n); setDdOpen(false); }
+                  }}
+                >
+                  <span className="dropdown-suggestion-name">{item.n}</span>
+                  <span className={`dropdown-suggestion-category ${item.cat.toLowerCase()}`}>{item.cat}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* ══ ABOUT ══ */}
       {screen === 'about' && (
         <div className="screen active">
@@ -1347,10 +1227,9 @@ export default function App() {
             <div className="about-card">
               <p className="about-card-ttl">MANIFESTO</p>
               <p>Free. Open source. No account. No ads. No cloud. No tracking.</p>
-              <br></br>
+              <br />
               <p className="mt-2 text-xs">PackAway simply helps you to save and resume your games.</p>
             </div>
-
             <div className="about-card">
               <p className="about-card-ttl">YOUR DATA</p>
               <div className="data-stat-row">
@@ -1368,7 +1247,6 @@ export default function App() {
                 </label>
               </div>
             </div>
-
             <div className="about-card">
               <p className="about-card-ttl">SUPPORT THE PROJECT</p>
               <p>If this saved you, buy me a pot of tea 🍵 🙏🏻</p>
@@ -1396,15 +1274,11 @@ export default function App() {
                   if (!deleteConfirmId) return;
                   const id = deleteConfirmId;
                   setDeleteConfirmId(null);
-                  
                   if (selectedSaveId === id) {
                     setSelectedSaveId(null);
                     setScreen('home', false);
-                    if (window.location.hash) {
-                      try { window.history.replaceState({ screen: 'home' }, '', window.location.pathname); } catch { /* ignore */ }
-                    }
+                    try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
                   }
-                  
                   await db.saves.delete(id);
                   showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Save point deleted');
                 }}
@@ -1440,22 +1314,16 @@ export default function App() {
               >
                 🔄 Overwrite / Update Existing
               </button>
-              
               <button
                 className="share-btn share-copy"
                 onClick={async () => {
                   const newCopyId = `save_${Date.now()}`;
-                  const copySave = {
-                    ...importConflict.incomingSave,
-                    id: newCopyId,
-                    name: `${importConflict.incomingSave.name} (Copy)`,
-                    lastModified: Date.now()
-                  };
+                  const copySave = { ...importConflict.incomingSave, id: newCopyId, name: `${importConflict.incomingSave.name} (Copy)`, lastModified: Date.now() };
                   await db.saves.put(copySave);
                   setSelectedSaveId(newCopyId);
                   setImportConflict(null);
                   setScreenState('resume');
-                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported as new copy!`);
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Imported as new copy!');
                   try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newCopyId}`); } catch { /* ignore */ }
                 }}
               >
@@ -1471,24 +1339,12 @@ export default function App() {
       {showPhotoModal && (
         <div className="share-overlay" onClick={() => setShowPhotoModal(false)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="photo-modal-title" onClick={e => e.stopPropagation()}>
-            <p className="share-title" id="photo-modal-title">Attach Photo</p>
+            <p className="share-title" id="photo-modal-title">Attach Table Photo</p>
             <div className="share-btns">
-              <button
-                className="share-btn share-copy"
-                onClick={() => {
-                  setShowPhotoModal(false);
-                  cameraInputRef.current?.click();
-                }}
-              >
+              <button className="share-btn share-copy" onClick={() => { setShowPhotoModal(false); cameraInputRef.current?.click(); }}>
                 <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Take Photo
               </button>
-              <button
-                className="share-btn share-copy"
-                onClick={() => {
-                  setShowPhotoModal(false);
-                  galleryInputRef.current?.click();
-                }}
-              >
+              <button className="share-btn share-copy" onClick={() => { setShowPhotoModal(false); galleryInputRef.current?.click(); }}>
                 <FontAwesomeIcon icon={faImages} aria-hidden="true" /> Choose from Gallery
               </button>
             </div>
@@ -1497,13 +1353,12 @@ export default function App() {
         </div>
       )}
 
-      {/* ══ CUSTOM SHARE MODAL ══ */}
+      {/* ══ SHARE MODAL ══ */}
       {shareData && (
         <div className="share-overlay" onClick={() => setShareData(null)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" onClick={e => e.stopPropagation()}>
             <p className="share-title" id="share-modal-title">Share Save Card</p>
 
-            {/* Photo preview if present */}
             {shareData.photo && (
               <div style={{ marginBottom: '12px', borderRadius: '10px', overflow: 'hidden', maxHeight: '150px' }}>
                 <img src={shareData.photo} alt="Table photo preview" style={{ width: '100%', height: '150px', objectFit: 'cover' }} />
@@ -1511,51 +1366,13 @@ export default function App() {
             )}
 
             <div className="share-btns">
-              {/* WhatsApp Button */}
-              <a
-                className="share-btn share-wa"
-                href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
-                target="_blank" rel="noopener noreferrer"
-                onClick={() => setShareData(null)}
-              >
+              <a className="share-btn share-wa" href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`} target="_blank" rel="noopener noreferrer" onClick={() => setShareData(null)}>
                 <FontAwesomeIcon icon={faWhatsapp} aria-hidden="true" /> WhatsApp
               </a>
-
-              {/* Telegram Button */}
-              <a
-                className="share-btn share-tg"
-                href={`https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(shareData.text)}`}
-                target="_blank" rel="noopener noreferrer"
-                onClick={() => setShareData(null)}
-              >
+              <a className="share-btn share-tg" href={`https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(shareData.text)}`} target="_blank" rel="noopener noreferrer" onClick={() => setShareData(null)}>
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
 
-              {/* Native share with photo attachment */}
-              {shareData.photo && (
-                <button
-                  className="share-btn share-copy"
-                  onClick={async () => {
-                    const file = dataUrlToFile(shareData.photo!, `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-save.jpg`);
-                    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-                      try {
-                        await navigator.share({
-                          title: `PackAway — ${shareData.title}`,
-                          text: shareData.text,
-                          files: [file]
-                        });
-                        setShareData(null);
-                      } catch { /* cancelled by user */ }
-                    } else {
-                      showToastMsg(<FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />, 'Use "Download Photo" to attach it in chat');
-                    }
-                  }}
-                >
-                  <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Share Photo & Text
-                </button>
-              )}
-
-              {/* Download photo button if present */}
               {shareData.photo && (
                 <button
                   className="share-btn share-copy"
@@ -1564,22 +1381,21 @@ export default function App() {
                     a.href = shareData.photo!;
                     a.download = `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-table.jpg`;
                     a.click();
-                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Photo downloaded!');
+                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Table photo downloaded!');
                   }}
                 >
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Download Photo
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Download Table Photo
                 </button>
               )}
 
-              {/* Copy Link & Text */}
               <button
                 className="share-btn share-copy"
                 onClick={async () => {
                   try { await navigator.clipboard.writeText(shareData.text); } catch { /* ignore */ }
-                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copied Link & Text!'); 
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copied Link & Text!');
                   setShareData(null);
                 }}
-              >                
+              >
                 <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copy Link & Text
               </button>
             </div>
@@ -1616,18 +1432,7 @@ export default function App() {
             className="toast-close-btn"
             onClick={() => setToast(null)}
             aria-label="Close notification"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              marginLeft: 'auto',
-              padding: '0 4px',
-              fontSize: '1rem',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center'
-            }}
+            style={{ background: 'transparent', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 'auto', padding: '0 4px', fontSize: '1rem', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
           >
             <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
           </button>
