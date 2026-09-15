@@ -5,6 +5,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faSun,
   faMoon,
+  faCircleInfo,
   faFloppyDisk,
   faChevronLeft,
   faEdit,
@@ -24,7 +25,6 @@ import {
   faCopy,
   faCircleCheck,
   faXmark,
-  faLeaf,
 } from '@fortawesome/free-solid-svg-icons';
 
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
@@ -50,22 +50,29 @@ interface GameSuggestion {
   cat: 'Boardgame' | 'RPG';
 }
 
-/* Helper functions for portable URL sharing across devices */
+/* Helper functions for compact, compressed URL sharing across devices */
 const encodeSaveForShare = (save: GameSave): string => {
-  const payload = {
-    originalId: save.id,
-    name: save.name,
-    scenario: save.scenario || '',
-    color: save.color,
-    lastModified: save.lastModified,
-    next: save.next || '',
-    round: save.round || 1,
-    npid: save.npid ?? null,
-    players: save.players || [],
-    cl: save.cl || []
+  const compact = {
+    i: save.id,
+    n: save.name,
+    s: save.scenario || undefined,
+    c: save.color,
+    t: save.lastModified,
+    x: save.next || undefined,
+    r: save.round || 1,
+    p: save.players?.map(p => ({
+      n: p.name,
+      o: p.note || undefined,
+      s: p.stats?.map(st => ({
+        t: st.type,
+        l: st.label,
+        v: st.value,
+        m: st.max || undefined
+      }))
+    }))
   };
   try {
-    const jsonStr = JSON.stringify(payload);
+    const jsonStr = JSON.stringify(compact);
     const base64 = btoa(encodeURIComponent(jsonStr).replace(/%([0-9A-F]{2})/g, (_, p1) => String.fromCharCode(parseInt(p1, 16))));
     return encodeURIComponent(base64);
   } catch {
@@ -79,7 +86,33 @@ const decodeSaveFromShare = (encodedStr: string): Partial<GameSave & { originalI
     const jsonStr = decodeURIComponent(
       Array.prototype.map.call(atob(base64), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
     );
-    return JSON.parse(jsonStr);
+    const data = JSON.parse(jsonStr);
+
+    if (!data) return null;
+    return {
+      originalId: data.i || data.originalId || data.id,
+      name: data.n || data.name,
+      scenario: data.s || data.scenario || '',
+      color: data.c || data.color,
+      lastModified: data.t || data.lastModified || Date.now(),
+      next: data.x || data.next || '',
+      round: data.r || data.round || 1,
+      npid: data.npid ?? null,
+      players: (data.p || data.players || []).map((p: any, pIdx: number) => ({
+        id: p.id || Date.now() + pIdx,
+        name: p.n || p.name || '',
+        note: p.o || p.note || '',
+        stats: (p.s || p.stats || []).map((st: any, sIdx: number) => ({
+          id: st.id || Date.now() + pIdx * 10 + sIdx,
+          type: st.t || st.type || 'num',
+          label: st.l || st.label || '',
+          value: st.v !== undefined ? st.v : (st.value || 0),
+          max: st.m !== undefined ? st.m : st.max,
+          color: st.color || '#F87171'
+        }))
+      })),
+      cl: data.cl || []
+    };
   } catch {
     return null;
   }
@@ -233,7 +266,12 @@ export default function App() {
   const [toast, setToast] = useState<{ icon: React.ReactNode; msg: string } | null>(null);
   
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
-  const [shareModal, setShareModal] = useState<string | null>(null);
+  const [shareData, setShareData] = useState<{
+    text: string;
+    photo?: string;
+    title: string;
+    save: GameSave;
+  } | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
@@ -326,7 +364,7 @@ export default function App() {
         if (!hash.startsWith('#/')) hash = '#/import/' + hash;
       }
 
-     if (hash.startsWith('#/import/')) {
+      if (hash.startsWith('#/import/')) {
         const encoded = hash.replace('#/import/', '');
         const imported = decodeSaveFromShare(encoded);
 
@@ -414,19 +452,19 @@ export default function App() {
   }, [showChecklist]);
 
   useEffect(() => {
-    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareModal || fullscreenImage || importConflict);
+    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareData || fullscreenImage || importConflict);
     if (!anyModalOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
       setDeleteConfirmId(null);
       setShowPhotoModal(false);
-      setShareModal(null);
+      setShareData(null);
       setFullscreenImage(null);
       setImportConflict(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteConfirmId, showPhotoModal, shareModal, fullscreenImage, importConflict]);
+  }, [deleteConfirmId, showPhotoModal, shareData, fullscreenImage, importConflict]);
 
   const showToastMsg = (icon: React.ReactNode, msg: string) => {
     setToast({ icon, msg });
@@ -517,7 +555,7 @@ export default function App() {
     }
   };
 
-  const handleShare = async (save: GameSave) => {
+  const handleShare = (save: GameSave) => {
     const sharePayload = encodeSaveForShare(save);
     const portableLink = sharePayload
       ? `${window.location.origin}/#/import/${sharePayload}`
@@ -539,22 +577,12 @@ export default function App() {
 
     const text = `${bodyLines}\n\n🔗 Open Save Point: ${portableLink}`;
 
-    let imageFile: File | null = null;
-    if (save.photo) {
-      imageFile = dataUrlToFile(save.photo, `${save.name.toLowerCase().replace(/[^a-z0-9]/g, '-')}-save.jpg`);
-    }
-
-    if (navigator.share) {
-      try {
-        const shareData: ShareData = { title: `PackAway — ${save.name}`, text };
-        if (imageFile && navigator.canShare && navigator.canShare({ files: [imageFile] })) {
-          shareData.files = [imageFile];
-        }
-        await navigator.share(shareData);
-      } catch { /* cancelled */ }
-    } else {
-      setShareModal(text);
-    }
+    setShareData({
+      text,
+      photo: save.photo,
+      title: save.name,
+      save
+    });
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -743,7 +771,7 @@ export default function App() {
                   title="About"
                   aria-label="About PackAway"
                 >
-                  <FontAwesomeIcon icon={faLeaf} aria-hidden="true" />
+                  <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -1460,40 +1488,93 @@ export default function App() {
         </div>
       )}
 
-      {/* ══ SHARE MODAL ══ */}
-      {shareModal && (
-        <div className="share-overlay" onClick={() => setShareModal(null)}>
+      {/* ══ SHARE MODAL PERSONALIZZATO ══ */}
+      {shareData && (
+        <div className="share-overlay" onClick={() => setShareData(null)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="share-modal-title" onClick={e => e.stopPropagation()}>
             <p className="share-title" id="share-modal-title">Share Save Card</p>
+
+            {/* Anteprima foto se presente */}
+            {shareData.photo && (
+              <div style={{ marginBottom: '12px', borderRadius: '10px', overflow: 'hidden', maxHeight: '150px' }}>
+                <img src={shareData.photo} alt="Table photo preview" style={{ width: '100%', height: '150px', objectFit: 'cover' }} />
+              </div>
+            )}
+
             <div className="share-btns">
+              {/* Pulsante WhatsApp */}
               <a
                 className="share-btn share-wa"
-                href={`https://wa.me/?text=${encodeURIComponent(shareModal)}`}
+                href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
                 target="_blank" rel="noopener noreferrer"
-                onClick={() => setShareModal(null)}
+                onClick={() => setShareData(null)}
               >
                 <FontAwesomeIcon icon={faWhatsapp} aria-hidden="true" /> WhatsApp
               </a>
+
+              {/* Pulsante Telegram */}
               <a
                 className="share-btn share-tg"
-                href={`https://t.me/share/url?url=${encodeURIComponent(`${window.location.origin}`)}&text=${encodeURIComponent(shareModal)}`}
+                href={`https://t.me/share/url?url=${encodeURIComponent(window.location.origin)}&text=${encodeURIComponent(shareData.text)}`}
                 target="_blank" rel="noopener noreferrer"
-                onClick={() => setShareModal(null)}
+                onClick={() => setShareData(null)}
               >
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
+
+              {/* Pulsante Download Foto (se presente) */}
+              {shareData.photo && (
+                <button
+                  className="share-btn share-copy"
+                  onClick={() => {
+                    const a = document.createElement('a');
+                    a.href = shareData.photo!;
+                    a.download = `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-table.jpg`;
+                    a.click();
+                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Foto del tavolo scaricata!');
+                  }}
+                >
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Scarica Foto Tavolo
+                </button>
+              )}
+
+              {/* Pulsante Invia Foto + Testo direttamente nell'App */}
+              {shareData.photo && (
+                <button
+                  className="share-btn share-copy"
+                  onClick={async () => {
+                    const file = dataUrlToFile(shareData.photo!, `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-save.jpg`);
+                    if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+                      try {
+                        await navigator.share({
+                          title: `PackAway — ${shareData.title}`,
+                          text: shareData.text,
+                          files: [file]
+                        });
+                        setShareData(null);
+                      } catch { /* annullato dall'utente */ }
+                    } else {
+                      showToastMsg(<FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />, 'Usa "Scarica Foto Tavolo" per allegarla su WhatsApp');
+                    }
+                  }}
+                >
+                  <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Invia Foto + Testo a App
+                </button>
+              )}
+
+              {/* Copia Link e Testo */}
               <button
                 className="share-btn share-copy"
                 onClick={async () => {
-                  try { await navigator.clipboard.writeText(shareModal); } catch { /* ignore */ }
-                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copied Deep Link & Text!'); 
-                  setShareModal(null);
+                  try { await navigator.clipboard.writeText(shareData.text); } catch { /* ignore */ }
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copiato Link & Testo!'); 
+                  setShareData(null);
                 }}
               >                
-                <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copy Deep Link & Text
+                <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copia Link & Testo
               </button>
             </div>
-            <button className="share-close" onClick={() => setShareModal(null)}>Cancel</button>
+            <button className="share-close" onClick={() => setShareData(null)}>Annulla</button>
           </div>
         </div>
       )}
