@@ -1,6 +1,35 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, type GameSave, type Player } from './db';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import {
+  faSun,
+  faMoon,
+  faCircleInfo,
+  faFloppyDisk,
+  faChevronLeft,
+  faEdit,
+  faShareNodes,
+  faUsers,
+  faListCheck,
+  faDice,
+  faCamera,
+  faPalette,
+  faBarsProgress,
+  faHashtag,
+  faPlus,
+  faArrowDownWideShort,
+  faDownload,
+  faUpload,
+  faImages,
+  faCopy,
+  faCircleCheck,
+  faXmark,
+} from '@fortawesome/free-solid-svg-icons';
+
+import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
+import { faWhatsapp, faTelegram } from '@fortawesome/free-brands-svg-icons';
+
 
 /* ── THEME-AWARE PALETTES ──
    Same hue order in both arrays so position (index) = identity/pattern,
@@ -175,7 +204,7 @@ export default function App() {
   const [sortMode, setSortMode] = useState<'date' | 'name'>('date');
   const [selectedSaveId, setSelectedSaveId] = useState<string | null>(null);
   
-  // React.ReactNode allows string, emoji, or JSX elements (like <i className="fa-solid fa-copy"></i>)
+  // React.ReactNode allows string, emoji, or JSX elements (like <FontAwesomeIcon icon={fa-copy} aria-hidden="true" />)
   const [toast, setToast] = useState<{ icon: React.ReactNode; msg: string } | null>(null);
   
   const [fullscreenImage, setFullscreenImage] = useState<string | null>(null);
@@ -540,7 +569,7 @@ const timeAgo = (ts: number) => {
     a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
     a.download = `packaway-backup-${new Date().toISOString().slice(0, 10)}.json`;
     a.click();
-    showToastMsg(<i className="fa-solid fa-circle-check"></i>, `Exported ${saves.length} save(s)`);
+    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Exported ${saves.length} save(s)`);
   };
 
   const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -553,7 +582,7 @@ const timeAgo = (ts: number) => {
         if (Array.isArray(data.saves) && confirm(`Import ${data.saves.length} saves? This replaces current saves.`)) {
           await db.saves.clear();
           for (const item of data.saves) await db.saves.put(item);
-         showToastMsg(<i className="fa-solid fa-circle-check"></i>, `Imported ${data.saves.length} save(s)`);
+         showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${data.saves.length} save(s)`);
           setScreen('home');
         }
       } catch { alert('Invalid backup file.'); }
@@ -599,9 +628,9 @@ const timeAgo = (ts: number) => {
                   aria-label={darkMode ? 'Switch to light theme' : 'Switch to dark theme'}
                 >
                   {darkMode ? (
-                    <i className="fa-solid fa-sun" aria-hidden="true"></i>
+                    <FontAwesomeIcon icon={faSun} aria-hidden="true" />
                   ) : (
-                    <i className="fa-solid fa-moon" aria-hidden="true"></i>
+                    <FontAwesomeIcon icon={faMoon} aria-hidden="true" />
                   )}
                 </button>
 
@@ -611,7 +640,7 @@ const timeAgo = (ts: number) => {
                   title="About"
                   aria-label="About PackAway"
                 >
-                  <i className="fa-solid fa-circle-info" aria-hidden="true"></i>
+                  <FontAwesomeIcon icon={faCircleInfo} aria-hidden="true" />
                 </button>
               </div>
             </div>
@@ -666,7 +695,7 @@ const timeAgo = (ts: number) => {
 
           <div className="floating-action-bar-container">
             <button className="btn-primary" onClick={openNewForm}>
-              <i className="fa-solid fa-floppy-disk" aria-hidden="true"></i> Save new game
+              <FontAwesomeIcon icon={faFloppyDisk} aria-hidden="true" /> Save new game
             </button>
           </div>
         </div>
@@ -677,18 +706,18 @@ const timeAgo = (ts: number) => {
         <div className="screen active">
           <div className="nav">
             <button className="nav-back" onClick={() => setScreen('home')}>
-              <i className="fa-solid fa-chevron-left" aria-hidden="true"></i> Back
+              <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
             </button>
             <div style={{ flex: 1 }} />
             <div className="nav-acts">
               <button className="nav-btn" onClick={() => setDeleteConfirmId(selectedSave.id)} title="Delete" aria-label="Delete this save">
-                <i className="fa-regular fa-trash-can" aria-hidden="true"></i>
+                <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" />
               </button>
               <button className="nav-btn" onClick={() => openEditForm(selectedSave)} title="Edit" aria-label="Edit this save">
-                <i className="fa-solid fa-edit" aria-hidden="true"></i>
+                <FontAwesomeIcon icon={faEdit} aria-hidden="true" />
               </button>
               <button className="nav-btn" onClick={() => handleShare(selectedSave)} title="Share" aria-label="Share this save">
-                <i className="fa-solid fa-share-nodes" aria-hidden="true"></i>
+                <FontAwesomeIcon icon={faShareNodes} aria-hidden="true" />
               </button>
             </div>
           </div>
@@ -739,7 +768,7 @@ const timeAgo = (ts: number) => {
               {/* PARTY & SCORES */}
               {selectedSave.players.length > 0 && (
                 <>
-                  <p className="save-card-section-label"><i className="fa-solid fa-users" aria-hidden="true"></i> PARTY & SCORES</p>
+                  <p className="save-card-section-label"><FontAwesomeIcon icon={faUsers} aria-hidden="true" /> PARTY & SCORES</p>
                   {selectedSave.players.map(p => {
                     const isNext = selectedSave.npid != null && p.id === selectedSave.npid;
                     const hpStats = p.stats.filter(s => s.type === 'hp');
@@ -797,13 +826,13 @@ const timeAgo = (ts: number) => {
           {!showChecklist ? (
             <div className="sticky-cta-bar">
               <button className="btn-primary" onClick={() => setShowChecklist(true)}>
-                <i className="fa-solid fa-list-check" aria-hidden="true"></i> Resume
+                <FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Resume
               </button>
             </div>
           ) : (
             <div className="checklist-container" ref={checklistRef}>
               <div className="checklist-header">
-                <span className="save-card-next-label"><i className="fa-solid fa-list-check" aria-hidden="true"></i> Board Setup Checklist</span>
+                <span className="save-card-next-label"><FontAwesomeIcon icon={faListCheck} aria-hidden="true" /> Board Setup Checklist</span>
               </div>
               <div className="checklist-items-list" role="group" aria-label="Board setup checklist">
                 {autoChecklist.map((step, idx) => (
@@ -830,7 +859,7 @@ const timeAgo = (ts: number) => {
               </div>
               <div className="sticky-cta-bar">
                 <button className="btn-primary" onClick={() => setScreen('home')}>
-                  <i className="fa-solid fa-dice" aria-hidden="true"></i> Ready to Play
+                  <FontAwesomeIcon icon={faDice} aria-hidden="true" /> Ready to Play
                 </button>
               </div>
             </div>
@@ -843,7 +872,7 @@ const timeAgo = (ts: number) => {
         <div className="screen active">
           <div className="nav">
             <button className="nav-back" onClick={() => setScreen('home')}>
-              <i className="fa-solid fa-chevron-left" aria-hidden="true"></i> Back
+              <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
             </button>
           </div>
 
@@ -877,13 +906,13 @@ const timeAgo = (ts: number) => {
                   <div className="photo-zone-action-buttons">
                     <button type="button" className="photo-zone-action-btn" onClick={e => { e.stopPropagation(); setShowPhotoModal(true); }}>📷 Change</button>
                     <button type="button" className="photo-zone-action-btn" onClick={e => { e.stopPropagation(); setPhotoData(undefined); setHasPhoto(false); }}>
-                      <i className="fa-regular fa-trash-can" aria-hidden="true"></i> Remove
+                      <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" /> Remove
                     </button>
                   </div>
                 </div>
               ) : (
                 <>
-                  <i className="fa-solid fa-camera" aria-hidden="true"></i>
+                  <FontAwesomeIcon icon={faCamera} aria-hidden="true" />
                   <div className="photo-zone-main-text">Snap the table</div>
                   <p className="photo-zone-sub-text">Covers board / territory / resources</p>
                 </>
@@ -892,7 +921,7 @@ const timeAgo = (ts: number) => {
 
             {/* COLOR PICKER */}
             <div className="color-picker-wrap">
-              <p className="save-card-section-label" id="color-picker-label"><i className="fa-solid fa-palette" aria-hidden="true"></i> Colour</p>
+              <p className="save-card-section-label" id="color-picker-label"><FontAwesomeIcon icon={faPalette} aria-hidden="true" /> Colour</p>
               <div className="color-picker-row" role="group" aria-labelledby="color-picker-label">
                 {PALETTE.map((hex, idx) => (
                   <button
@@ -982,7 +1011,7 @@ const timeAgo = (ts: number) => {
               />
             </div>
             <p className="form-field-hint">What were you about to do? One sentence, written for yourself in three weeks.</p>
-            <p className="save-card-section-label" id="players-section-label"><i className="fa-solid fa-users" aria-hidden="true"></i> PARTY & SCORES</p>
+            <p className="save-card-section-label" id="players-section-label"><FontAwesomeIcon icon={faUsers} aria-hidden="true" /> PARTY & SCORES</p>
             <div className="form-expandable-section">
               {showPlayersExp && (
                 <div className="expandable-section-content open" id="players-section-content">
@@ -998,7 +1027,7 @@ const timeAgo = (ts: number) => {
                           onChange={e => { const c = [...players]; c[pIdx].name = e.target.value; setPlayers(c); }}
                         />
                         <button className="player-delete-button" aria-label={`Remove ${p.name || 'player'}`} onClick={() => deletePlayer(pIdx)}>
-                          <i className="fa-regular fa-trash-can" aria-hidden="true"></i>
+                          <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" />
                         </button>
                       </div>
 
@@ -1006,7 +1035,7 @@ const timeAgo = (ts: number) => {
                         <div key={s.id} className="stat-editor-row">
                           {/* COL 1: BADGE */}
                           <div className={`stat-type-badge ${s.type}`} aria-hidden="true">
-                            {s.type === 'hp' ? <i className="fa-solid fa-bars-progress"></i> : <i className="fa-solid fa-hashtag"></i>}
+                            {s.type === 'hp' ? <FontAwesomeIcon icon={faBarsProgress} aria-hidden="true" /> : <FontAwesomeIcon icon={faHashtag} aria-hidden="true" />}
                           </div>
 
                           {/* COL 2: LABEL FIELD WITH "LABEL:" INDICATOR */}
@@ -1081,12 +1110,12 @@ const timeAgo = (ts: number) => {
                           const c = [...players];
                           c[pIdx].stats.push({ id: Date.now(), type: 'hp', label: 'HP', value: 6, max: 8, color: '#F87171' });
                           setPlayers(c);
-                        }}><i className="fa-solid fa-plus" aria-hidden="true"></i> Add Bar</button>
+                        }}><FontAwesomeIcon icon={faPlus} aria-hidden="true" /> Add Bar</button>
                         <button type="button" className="add-number-stat-btn" onClick={() => {
                           const c = [...players];
                           c[pIdx].stats.push({ id: Date.now(), type: 'num', label: 'Score', value: 0, color: '#6B8EFF' });
                           setPlayers(c);
-                        }}><i className="fa-solid fa-plus" aria-hidden="true"></i> Add Number</button>
+                        }}><FontAwesomeIcon icon={faPlus} aria-hidden="true" /> Add Number</button>
                       </div>
 
                       <div className="player-notes-editor-wrap">
@@ -1110,7 +1139,7 @@ const timeAgo = (ts: number) => {
 
                   {/* NEXT TURN SELECTOR */}
                   <div className="next-turn-wrap">
-                    <p className="save-card-section-label" id="next-turn-label"><i className="fa-solid fa-arrow-down-wide-short" aria-hidden="true"></i>Next turn (optional)</p>
+                    <p className="save-card-section-label" id="next-turn-label"><FontAwesomeIcon icon={faArrowDownWideShort} aria-hidden="true" />Next turn (optional)</p>
                     {players.length === 0 ? (
                       <p className="next-turn-empty">Add players above to choose who plays next.</p>
                     ) : (
@@ -1137,7 +1166,7 @@ const timeAgo = (ts: number) => {
 
           <div className="sticky-cta-bar">
             <button className="btn-primary" onClick={handleSaveForm}>
-              <i className="fa-solid fa-floppy-disk" aria-hidden="true"></i> {editingId ? 'Update' : 'Save'}
+              <FontAwesomeIcon icon={faFloppyDisk} aria-hidden="true" /> {editingId ? 'Update' : 'Save'}
             </button>
           </div>
         </div>
@@ -1148,7 +1177,7 @@ const timeAgo = (ts: number) => {
         <div className="screen active">
           <div className="nav">
             <button className="nav-back" onClick={() => setScreen('home')}>
-              <i className="fa-solid fa-chevron-left" aria-hidden="true"></i> Back
+              <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
             </button>
           </div>
           <div className="about-hero">
@@ -1174,10 +1203,10 @@ const timeAgo = (ts: number) => {
               </div>
               <div className="data-btns">
                 <button className="data-btn data-btn-export" onClick={exportBackup}>
-                  <i className="fa-solid fa-download" aria-hidden="true"></i> Export JSON
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export JSON
                 </button>
                 <label className="data-btn data-btn-import" style={{ cursor: 'pointer' }}>
-                  <i className="fa-solid fa-upload" aria-hidden="true"></i> Import JSON
+                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import JSON
                   <input type="file" accept=".json" onChange={importBackup} className="hidden" />
                 </label>
               </div>
@@ -1212,10 +1241,10 @@ const timeAgo = (ts: number) => {
                   setDeleteConfirmId(null);
                   await db.saves.delete(id);
                   if (selectedSaveId === id) setScreen('home');
-                  showToastMsg(<i className="fa-solid fa-circle-check"></i>, 'Save point deleted');
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Save point deleted');
                 }}
               >
-                <i className="fa-regular fa-trash-can" aria-hidden="true"></i> Permanently Delete
+                <FontAwesomeIcon icon={faTrashCan} aria-hidden="true" /> Permanently Delete
               </button>
             </div>
             <button className="share-close" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
@@ -1236,7 +1265,7 @@ const timeAgo = (ts: number) => {
                   cameraInputRef.current?.click();
                 }}
               >
-                <i className="fa-solid fa-camera" aria-hidden="true"></i> Take Photo
+                <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Take Photo
               </button>
               <button
                 className="share-btn share-copy"
@@ -1245,7 +1274,7 @@ const timeAgo = (ts: number) => {
                   galleryInputRef.current?.click();
                 }}
               >
-                <i className="fa-solid fa-images" aria-hidden="true"></i> Choose from Gallery
+                <FontAwesomeIcon icon={faImages} aria-hidden="true" /> Choose from Gallery
               </button>
             </div>
             <button className="share-close" onClick={() => setShowPhotoModal(false)}>Cancel</button>
@@ -1265,7 +1294,7 @@ const timeAgo = (ts: number) => {
                 target="_blank" rel="noopener noreferrer"
                 onClick={() => setShareModal(null)}
               >
-                <i className="fa-brands fa-whatsapp" aria-hidden="true"></i> WhatsApp
+                <FontAwesomeIcon icon={faWhatsapp} aria-hidden="true" /> WhatsApp
               </a>
               <a
                 className="share-btn share-tg"
@@ -1273,17 +1302,17 @@ const timeAgo = (ts: number) => {
                 target="_blank" rel="noopener noreferrer"
                 onClick={() => setShareModal(null)}
               >
-                <i className="fa-brands fa-telegram" aria-hidden="true"></i> Telegram
+                <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
               <button
                 className="share-btn share-copy"
                 onClick={async () => {
                   try { await navigator.clipboard.writeText(shareModal); } catch { /* ignore */ }
-                  showToastMsg(<i className="fa-solid fa-circle-check"></i>, 'Copied Deep Link & Text!'); 
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Copied Deep Link & Text!'); 
                   setShareModal(null);
                 }}
               >                
-                <i className="fa-solid fa-copy" aria-hidden="true"></i> Copy Deep Link & Text
+                <FontAwesomeIcon icon={faCopy} aria-hidden="true" /> Copy Deep Link & Text
               </button>
             </div>
             <button className="share-close" onClick={() => setShareModal(null)}>Cancel</button>
@@ -1332,7 +1361,7 @@ const timeAgo = (ts: number) => {
               justifyContent: 'center'
             }}
           >
-            <i className="fa-solid fa-xmark" aria-hidden="true"></i>
+            <FontAwesomeIcon icon={faXmark} aria-hidden="true" />
           </button>
         </div>
       )}
