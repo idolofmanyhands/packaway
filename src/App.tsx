@@ -859,7 +859,7 @@ const timeAgo = (ts: number) => {
               </div>
               <div className="sticky-cta-bar">
                 <button className="btn-primary" onClick={() => setScreen('home')}>
-                  <FontAwesomeIcon icon={faDice} aria-hidden="true" /> Ready to Play
+                  <FontAwesomeIcon icon={faDice} aria-hidden="true" /> Back to the table!
                 </button>
               </div>
             </div>
@@ -1183,7 +1183,7 @@ const timeAgo = (ts: number) => {
           <div className="about-hero">
             <img src="/pwa-512x512.png" alt="PackAway Logo" className="about-ico" />
             <h1 className="about-title">PackAway</h1>
-            <p className="about-tag">A save button for physical tabletop games</p>
+            <p className="about-tag">Leave the table. Keep the game.</p>
           </div>
           <div className="about-body">
             <div className="about-card">
@@ -1227,9 +1227,9 @@ const timeAgo = (ts: number) => {
       {deleteConfirmId && (
         <div className="share-overlay" onClick={() => setDeleteConfirmId(null)}>
           <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title" onClick={e => e.stopPropagation()}>
-            <p className="share-title" id="delete-modal-title" style={{ color: 'var(--color-danger)' }}>Delete Save Point?</p>
+            <p className="share-title" id="delete-modal-title" style={{ color: 'var(--color-danger)' }}>Delete Saved Game?</p>
             <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginBottom: '16px', lineHeight: '1.4' }}>
-              Are you sure you want to delete this game save and table photo? This action cannot be undone.
+              Delete this saved game? This can't be undone.
             </p>
             <div className="share-btns">
               <button
