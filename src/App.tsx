@@ -223,6 +223,7 @@ export default function App() {
   const [ddOpen, setDdOpen] = useState(false);
   const [clCompleted, setClCompleted] = useState<Record<number, boolean>>({});
   const [ddStyle, setDdStyle] = useState<React.CSSProperties>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
@@ -236,19 +237,26 @@ export default function App() {
     setToast({ icon, msg });
   };
 
-  const dataUrlToFile = (dataUrl: string, filename: string): File | null => {
+  // Convert base64 dataUrl to Blob File robustly for PWA compatibility
+  const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File | null> => {
     try {
-      const parts = dataUrl.split(',');
-      if (parts.length < 2) return null;
-      const mimeMatch = parts[0].match(/:(.*?);/);
-      const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-      const bstr = atob(parts[1]);
-      let n = bstr.length;
-      const u8arr = new Uint8Array(n);
-      while (n--) { u8arr[n] = bstr.charCodeAt(n); }
-      return new File([u8arr], filename, { type: mime });
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      return new File([blob], filename, { type: blob.type || 'image/jpeg' });
     } catch {
-      return null;
+      try {
+        const parts = dataUrl.split(',');
+        if (parts.length < 2) return null;
+        const mimeMatch = parts[0].match(/:(.*?);/);
+        const mime = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+        const bstr = atob(parts[1]);
+        let n = bstr.length;
+        const u8arr = new Uint8Array(n);
+        while (n--) { u8arr[n] = bstr.charCodeAt(n); }
+        return new File([u8arr], filename, { type: mime });
+      } catch {
+        return null;
+      }
     }
   };
 
@@ -275,7 +283,17 @@ export default function App() {
     };
   }, []);
 
-  // Update fixed dropdown position on open, input edit, window scroll or resize
+  // Smooth scroll Game Name field with 70px clearance for fixed header/nav bar
+  const scrollToGameNameInput = () => {
+    if (gameNameInputRef.current) {
+      const rect = gameNameInputRef.current.getBoundingClientRect();
+      const currentScrollY = window.scrollY || window.pageYOffset || document.documentElement.scrollTop;
+      const targetY = Math.max(0, rect.top + currentScrollY - 70);
+      window.scrollTo({ top: targetY, behavior: 'smooth' });
+    }
+  };
+
+  // Update fixed dropdown position on scroll, resize or input edit
   const updateDropdownPosition = () => {
     if (gameNameInputRef.current) {
       const rect = gameNameInputRef.current.getBoundingClientRect();
@@ -447,7 +465,7 @@ export default function App() {
     return list.length ? list : selectedSave.cl;
   }, [selectedSave]);
 
-  // Clean textual share formatting with WhatsApp/Telegram markdown (no URLs)
+  // Clean textual share formatting using single asterisk '*' for WhatsApp markdown (no '_')
   const handleShare = (save: GameSave) => {
     const playerLines = save.players.map(p => {
       const isNext = save.npid === p.id;
@@ -456,7 +474,7 @@ export default function App() {
           ? `${s.label}: *${s.value}/${s.max}*`
           : `${s.label}: *${s.value}*`
       ).join(', ');
-      const note = p.note ? ` _(${p.note})_` : '';
+      const note = p.note ? ` (*${p.note}*)` : '';
       return `• *${p.name}*${isNext ? ' ⏭️' : ''}${stats ? ' — ' + stats : ''}${note}`;
     }).join('\n');
 
@@ -466,7 +484,7 @@ export default function App() {
 
     const lines: (string | null)[] = [
       `🎲 *${save.name}*`,
-      save.scenario ? `_${save.scenario}_` : null,
+      save.scenario ? `*${save.scenario}*` : null,
       '',
       save.next?.trim() ? `📍 *What's Next*\n${save.next.trim()}` : null,
       playerLines ? `\n👥 *Party & Scores*\n${playerLines}` : null,
@@ -478,7 +496,7 @@ export default function App() {
           ].filter(Boolean).join('   ')
         : null,
       '',
-      '_Saved with PackAway 🎲_'
+      '*Saved with PackAway 🎲*'
     ];
 
     const text = lines.filter(l => l !== null).join('\n');
@@ -536,21 +554,39 @@ export default function App() {
     setScreen('form');
   };
 
+  // Fixed Save/Update handler: redirects to Home, prevents double-submits and displays Toast
   const handleSaveForm = async () => {
-    const id = editingId || `save_${Date.now()}`;
-    await db.saves.put({
-      id,
-      name: gameName.trim() || 'Untitled Game',
-      scenario, color: formColor, hasPhoto, photo: photoData,
-      lastModified: Date.now(), next: nextIntentions,
-      round, npid: nextPlayerId, players,
-      cl: ['Review table photo', 'Restore all player stats', "Read 'What's Next'"]
-    });
-    setSelectedSaveId(id);
-    setClCompleted({});
-    setShowChecklist(false);
-    try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${id}`); } catch { /* ignore */ }
-    setScreen('resume');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const isEdit = Boolean(editingId);
+      const id = editingId || `save_${Date.now()}`;
+      await db.saves.put({
+        id,
+        name: gameName.trim() || 'Untitled Game',
+        scenario: scenario.trim(),
+        color: formColor,
+        hasPhoto,
+        photo: photoData,
+        lastModified: Date.now(),
+        next: nextIntentions.trim(),
+        round,
+        npid: nextPlayerId,
+        players,
+        cl: ['Review table photo', 'Restore all player stats', "Read 'What's Next'"]
+      });
+      setEditingId(null);
+      setSelectedSaveId(null);
+      goToHome();
+      showToastMsg(
+        <FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />,
+        isEdit ? 'Save point updated!' : 'Game save created!'
+      );
+    } catch {
+      showToastMsg(<FontAwesomeIcon icon={faXmark} aria-hidden="true" />, 'Could not save game.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const updateStatValue = (pIdx: number, sIdx: number, key: 'value' | 'max', delta: number) => {
@@ -630,6 +666,7 @@ export default function App() {
 
   const goToHome = () => {
     setSelectedSaveId(null);
+    setEditingId(null);
     try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
     setScreen('home');
   };
@@ -998,7 +1035,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* GAME NAME */}
+            {/* GAME NAME (Anchors top with 70px offset on focus) */}
             <div className="game-title-input-wrap">
               <div className="md-field">
                 <label className="md-label" htmlFor="game-name-input">Game Name</label>
@@ -1014,7 +1051,7 @@ export default function App() {
                   onFocus={() => {
                     setDdOpen(true);
                     setTimeout(() => {
-                      gameNameInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      scrollToGameNameInput();
                     }, 100);
                   }}
                   onChange={e => { setGameName(e.target.value); setDdOpen(true); }}
@@ -1198,7 +1235,7 @@ export default function App() {
           </div>
 
           <div className="sticky-cta-bar">
-            <button className="btn-primary" onClick={handleSaveForm}>
+            <button className="btn-primary" onClick={handleSaveForm} disabled={isSubmitting}>
               <FontAwesomeIcon icon={faFloppyDisk} aria-hidden="true" /> {editingId ? 'Update' : 'Save'}
             </button>
           </div>
@@ -1361,7 +1398,7 @@ export default function App() {
                   style={{ fontWeight: 600 }}
                   onClick={async () => {
                     const slug = shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
-                    const file = dataUrlToFile(shareData.photo!, `${slug}-table.jpg`);
+                    const file = await dataUrlToFile(shareData.photo!, `${slug}-table.jpg`);
                     if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
                       try {
                         await navigator.share({
@@ -1369,25 +1406,30 @@ export default function App() {
                           text: shareData.text
                         });
                         setShareData(null);
+                        return;
                       } catch { /* user cancelled */ }
-                    } else {
+                    }
+                    
+                    // Fallback for PWAs/devices that do not support files in navigator.share
+                    if (navigator.share) {
                       try {
                         await navigator.share({ text: shareData.text });
                         setShareData(null);
-                      } catch {
-                        showToastMsg(
-                          <FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />,
-                          'Use WhatsApp or Telegram below to share'
-                        );
-                      }
+                        return;
+                      } catch { /* cancelled */ }
                     }
+
+                    showToastMsg(
+                      <FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />,
+                      'Use WhatsApp or Telegram below to share'
+                    );
                   }}
                 >
                   <FontAwesomeIcon icon={faCamera} aria-hidden="true" /> Share Photo + Text
                 </button>
               )}
 
-              {/* WhatsApp — formatted markdown text */}
+              {/* WhatsApp — formatted markdown text using '*' for bold */}
               <a
                 className="share-btn share-wa"
                 href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
