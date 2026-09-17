@@ -1677,30 +1677,6 @@ export default function App() {
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
 
-              {/* Export Single Game file (.zip) */}
-              <button
-                className="share-btn share-copy"
-                onClick={() => exportSingleGame(shareData.save)}
-              >
-                <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export Game File (.zip)
-              </button>
-
-              {/* Download photo button if present */}
-              {shareData.photo && (
-                <button
-                  className="share-btn share-copy"
-                  onClick={() => {
-                    const a = document.createElement('a');
-                    a.href = shareData.photo!;
-                    a.download = `${shareData.title.toLowerCase().replace(/[^a-z0-9]/g, '-')}-table.jpg`;
-                    a.click();
-                    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, 'Table photo downloaded!');
-                  }}
-                >
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Download Table Photo
-                </button>
-              )}
-
               {/* Copy formatted text to clipboard */}
               <button
                 className="share-btn share-copy"
