@@ -1,75 +1,66 @@
-# React + TypeScript + Vite
+<p align="center">
+  <img src="public/logo-big.png" alt="PackAway" width="200">
+</p>
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+# PackAway
 
-Currently, two official plugins are available:
+### Leave the table. Keep the game.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+PackAway is a tiny **save point for tabletop RPG and board game sessions**.
 
-## React Compiler
+Sometimes a game has to stop before the game is actually over. Pack away the table, go home, and three weeks later nobody remembers exactly what was happening.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+PackAway lets you save the state of a session so you can pick it up again later.
 
-## Expanding the ESLint configuration
+## What it saves
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Game and scenario
+- Players and their characters
+- Stats and scores
+- Notes
+- What happened
+- **What's Next** — the most important part
+- An optional photo of the table
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+## Try PackAway
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+**[packaway.dev](https://packaway.dev)**
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+No account. No subscription. No server required for your saves.
 
-```
+PackAway is a local-first Progressive Web App and works offline once installed.
 
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
+## Features
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+- Local-first
+- Works offline
+- Installable as a PWA
+- No account required
+- Export and import your saves
+- Share a formatted session summary
+- Optional table/session photo
+- Dark, tabletop-friendly interface
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+## Open source
 
-```
+PackAway is free and open source.
+
+The project is built with:
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- IndexedDB / Dexie
+- Vite PWA
+
+No account. No subscription. No cloud save.
+
+If you find PackAway useful, you can leave a small tip on [itch.io](https://itch.io/blog/1667186/packaway-save-and-resume-your-games), [paypal](https://www.paypal.com/paypalme/idolofmanyhands) or [ko-fi](https://ko-fi.com/idolofmanyhands). It's completely optional.
+
+
+---
+
+This project, including code, design assets, and artwork, is licensed under the **Creative Commons Attribution 4.0 International (CC BY 4.0)** license.
+
+See the [LICENSE](LICENSE) file for the full license text.
