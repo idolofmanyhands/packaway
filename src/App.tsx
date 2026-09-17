@@ -29,6 +29,7 @@ import {
 
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
 import { faWhatsapp, faTelegram } from '@fortawesome/free-brands-svg-icons';
+ // @ts-ignore 
 import JSZip from 'jszip';
 
 /* ── THEME-AWARE PALETTES ── */
