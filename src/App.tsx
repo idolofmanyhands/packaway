@@ -540,6 +540,7 @@ export default function App() {
   };
 
   // Unified Smart Import: Automatically handles Single Game files OR Bulk Backups (.zip or .json)
+  // ALWAYS lands the user back on the Homepage after importing!
   const importBackupOrGame = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -620,10 +621,8 @@ export default function App() {
         }
 
         await db.saves.put(singleGameSave);
-        setSelectedSaveId(singleGameSave.id);
+        goToHome();
         showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported "${singleGameSave.name}"!`);
-        try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${singleGameSave.id}`); } catch { /* ignore */ }
-        setScreen('resume');
         return;
       }
 
@@ -651,8 +650,8 @@ export default function App() {
           for (const item of importedSaves) {
             await db.saves.put(item);
           }
-          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${importedSaves.length} save(s)!`);
           goToHome();
+          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${importedSaves.length} save(s)!`);
         }
         return;
       }
@@ -952,7 +951,7 @@ export default function App() {
       {screen === 'resume' && (
         selectedSave ? (
           <div className="screen active">
-            {/* Top Navigation: Delete / Edit / Export / Share */}
+            {/* Top Navigation: Delete / Edit / Export (faDownload) / Share */}
             <div className="nav">
               <button className="nav-back" onClick={goToHome}>
                 <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
@@ -1472,12 +1471,11 @@ export default function App() {
                 </div>
               </div>
               <div className="data-btns">
-                <button className="data-btn data-btn-import" onClick={exportBackup}>
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export
+                <button className="data-btn data-btn-export" onClick={exportBackup}>
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export ZIP
                 </button>
-                <button className="data-btn data-btn-import" style={{ cursor: 'pointer' }}>
-                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import
-                  <input type="file" accept=".zip,.json" onChange={importBackupOrGame} className="hidden" />
+                <button className="data-btn data-btn-import" onClick={() => fileImportInputRef.current?.click()}>
+                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import Backup
                 </button>
               </div>
             </div>
@@ -1542,11 +1540,9 @@ export default function App() {
                 onClick={async () => {
                   const updatedSave = { ...importConflict.incomingSave, id: importConflict.existingSave.id, lastModified: Date.now() };
                   await db.saves.put(updatedSave);
-                  setSelectedSaveId(updatedSave.id);
                   setImportConflict(null);
-                  setScreenState('resume');
+                  goToHome();
                   showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Updated "${updatedSave.name}"!`);
-                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${updatedSave.id}`); } catch { /* ignore */ }
                 }}
               >
                 🔄 Overwrite / Update Existing
@@ -1563,11 +1559,9 @@ export default function App() {
                     lastModified: Date.now()
                   };
                   await db.saves.put(copySave);
-                  setSelectedSaveId(newCopyId);
                   setImportConflict(null);
-                  setScreenState('resume');
+                  goToHome();
                   showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported as new copy!`);
-                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newCopyId}`); } catch { /* ignore */ }
                 }}
               >
                 📋 Keep Both (Save as Copy)
@@ -1673,7 +1667,15 @@ export default function App() {
               >
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
-              
+
+              {/* Export Single Game file (.zip) */}
+              <button
+                className="share-btn share-copy"
+                onClick={() => exportSingleGame(shareData.save)}
+              >
+                <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export Game File (.zip)
+              </button>
+
               {/* Download photo button if present */}
               {shareData.photo && (
                 <button
