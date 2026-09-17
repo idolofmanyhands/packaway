@@ -29,6 +29,7 @@ import {
 
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
 import { faWhatsapp, faTelegram } from '@fortawesome/free-brands-svg-icons';
+import JSZip from 'jszip';
 
 /* ── THEME-AWARE PALETTES ── */
 const PALETTE_DARK = ['#FB923C', '#FBBF24', '#F87171', '#F472B6', '#C084FC', '#818CF8', '#2DD4BF', '#4ADE80', '#A3E635', '#94A3B8', '#38BDF8', '#E879F9', '#FB7185', '#A8A29E'];
@@ -237,7 +238,6 @@ export default function App() {
     setToast({ icon, msg });
   };
 
-  // Convert base64 dataUrl to Blob File robustly for PWA compatibility
   const dataUrlToFile = async (dataUrl: string, filename: string): Promise<File | null> => {
     try {
       const res = await fetch(dataUrl);
@@ -465,7 +465,7 @@ export default function App() {
     return list.length ? list : selectedSave.cl;
   }, [selectedSave]);
 
-  // Clean textual share formatting using single asterisk '*' for WhatsApp markdown (no '_')
+  // Clean textual share formatting with WhatsApp/Telegram markdown (no URLs)
   const handleShare = (save: GameSave) => {
     const playerLines = save.players.map(p => {
       const isNext = save.npid === p.id;
@@ -623,37 +623,100 @@ export default function App() {
     if (nextPlayerId === removedId) setNextPlayerId(null);
   };
 
-  const exportBackup = () => {
-    const payload = {
-      version: 1, app: 'PackAway',
-      exported: new Date().toISOString(),
-      saves: saves.map(s => ({ ...s, photo: undefined }))
-    };
-    const a = document.createElement('a');
-    a.href = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(payload, null, 2));
-    a.download = `packaway-backup-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Exported ${saves.length} save(s)`);
+  // ZIP Backup Export (saves.json + JPEG photos in photos/ folder)
+  const exportBackup = async () => {
+    try {
+      const zip = new JSZip();
+      const cleanSaves = saves.map(s => ({
+        ...s,
+        photo: undefined,
+        hasPhoto: Boolean(s.photo)
+      }));
+
+      zip.file('saves.json', JSON.stringify({
+        version: 2,
+        app: 'PackAway',
+        exported: new Date().toISOString(),
+        saves: cleanSaves
+      }, null, 2));
+
+      const photosFolder = zip.folder('photos');
+      saves.forEach(s => {
+        if (s.photo) {
+          const parts = s.photo.split(',');
+          if (parts.length >= 2) {
+            photosFolder?.file(`${s.id}.jpg`, parts[1], { base64: true });
+          }
+        }
+      });
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `packaway-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Exported ${saves.length} save(s) to ZIP`);
+    } catch {
+      showToastMsg(<FontAwesomeIcon icon={faXmark} aria-hidden="true" />, 'Could not create ZIP backup');
+    }
   };
 
-  const importBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Backward-compatible Import (supports both .zip and legacy .json files)
+  const importBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async evt => {
-      try {
-        const data = JSON.parse(evt.target?.result as string);
-        if (Array.isArray(data.saves) && confirm(`Import ${data.saves.length} saves? This replaces current saves.`)) {
-          await db.saves.clear();
-          for (const item of data.saves) await db.saves.put(item);
-          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${data.saves.length} save(s)`);
-          setSelectedSaveId(null);
-          try { window.history.replaceState({ screen: 'home' }, '', '/'); } catch { /* ignore */ }
-          setScreen('home');
+
+    try {
+      let importedSaves: GameSave[] = [];
+
+      if (file.name.endsWith('.zip')) {
+        const zip = await JSZip.loadAsync(file);
+        const jsonFile = zip.file('saves.json');
+        if (!jsonFile) {
+          alert('Invalid ZIP backup: missing saves.json');
+          return;
         }
-      } catch { alert('Invalid backup file.'); }
-    };
-    reader.readAsText(file);
+        const jsonText = await jsonFile.async('text');
+        const parsed = JSON.parse(jsonText);
+        const rawSaves: GameSave[] = parsed.saves || [];
+
+        for (const s of rawSaves) {
+          let photoDataUrl: string | undefined = undefined;
+          const photoFile = zip.file(`photos/${s.id}.jpg`) || zip.file(`photos/${s.id}.png`) || zip.file(`photos/${s.id}.jpeg`);
+          if (photoFile) {
+            const b64 = await photoFile.async('base64');
+            photoDataUrl = `data:image/jpeg;base64,${b64}`;
+          }
+          importedSaves.push({
+            ...s,
+            hasPhoto: Boolean(photoDataUrl),
+            photo: photoDataUrl
+          });
+        }
+      } else {
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        importedSaves = parsed.saves || [];
+      }
+
+      if (importedSaves.length === 0) {
+        alert('No save games found in backup file.');
+        return;
+      }
+
+      if (confirm(`Import ${importedSaves.length} saves? This will replace your current save points.`)) {
+        await db.saves.clear();
+        for (const item of importedSaves) {
+          await db.saves.put(item);
+        }
+        showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${importedSaves.length} save(s)!`);
+        goToHome();
+      }
+    } catch {
+      alert('Invalid or corrupted backup file.');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const filteredSuggestions = useMemo(() => {
@@ -1035,7 +1098,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* GAME NAME (Anchors top with 70px offset on focus) */}
+            {/* GAME NAME */}
             <div className="game-title-input-wrap">
               <div className="md-field">
                 <label className="md-label" htmlFor="game-name-input">Game Name</label>
@@ -1300,11 +1363,11 @@ export default function App() {
               </div>
               <div className="data-btns">
                 <button className="data-btn data-btn-export" onClick={exportBackup}>
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export JSON
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export ZIP
                 </button>
                 <label className="data-btn data-btn-import" style={{ cursor: 'pointer' }}>
-                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import JSON
-                  <input type="file" accept=".json" onChange={importBackup} className="hidden" />
+                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import Backup
+                  <input type="file" accept=".zip,.json" onChange={importBackup} className="hidden" />
                 </label>
               </div>
             </div>
@@ -1429,7 +1492,7 @@ export default function App() {
                 </button>
               )}
 
-              {/* WhatsApp — formatted markdown text using '*' for bold */}
+              {/* WhatsApp — formatted markdown text using '*' */}
               <a
                 className="share-btn share-wa"
                 href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
