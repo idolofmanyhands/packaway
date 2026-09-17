@@ -1019,7 +1019,7 @@ body.light .share-panel {
 .about-tag { font-size: 14px; color: var(--color-text-muted); }
 .about-body { padding: 0 16px 36px; display: flex; flex-direction: column; gap: 16px; }
 .about-card { background: var(--color-surface-1); border: 1px solid var(--color-border-subtle); border-radius: 16px; padding: 16px; color: var(--color-text-primary); box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
-.about-card-ttl { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px; }
+.about-card-ttl { font-size: 12px; font-weight: 800; text-transform: uppercase; color: var(--color-text-muted); margin-bottom: 8px; }
 .data-stat-row { display: flex; gap: 16px; margin-bottom: 12px; }
 .data-stat { font-size: 24px; font-weight: 800; color: var(--color-text-primary); }
 .data-stat-lbl { font-size: 13px; color: var(--color-text-muted); margin-left: 4px; }
@@ -1104,11 +1104,21 @@ body.light .share-panel {
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   min-height: 40px;
 }
+/* ── HIGH CONTRAST ACTIVE CHIP (WCAG AAA 7.2:1 CONTRAST RATIO) ── */
 .next-turn-chip.on {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
+  background: #1F4E32;
+  border-color: var(--color-amber);
+  color: #ffffff;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+body.light .next-turn-chip.on {
+  background: #174227;
+  border-color: var(--color-amber);
   color: #ffffff;
 }
+
 .next-turn-empty {
   font-size: 13px;
   color: var(--color-text-muted);

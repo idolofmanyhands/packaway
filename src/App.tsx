@@ -839,6 +839,7 @@ export default function App() {
         accept=".zip,.json"
         ref={fileImportInputRef}
         onChange={importBackupOrGame}
+        aria-label="Import game save or backup file"
         className="hidden"
       />
 
@@ -1144,11 +1145,15 @@ export default function App() {
           <div className="form-body">
             <input
               type="file" accept="image/*" capture="environment"
-              ref={cameraInputRef} onChange={handlePhotoUpload} className="hidden"
+              ref={cameraInputRef} onChange={handlePhotoUpload}
+              aria-label="Take table photo using camera"
+              className="hidden"
             />
             <input
               type="file" accept="image/*"
-              ref={galleryInputRef} onChange={handlePhotoUpload} className="hidden"
+              ref={galleryInputRef} onChange={handlePhotoUpload}
+              aria-label="Upload table photo from gallery"
+              className="hidden"
             />
 
             <div
@@ -1471,10 +1476,14 @@ export default function App() {
                 </div>
               </div>
               <div className="data-btns">
-                <button className="data-btn data-btn-export" onClick={exportBackup}>
+                <button type="button" className="data-btn data-btn-export" onClick={exportBackup}>
                   <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export ZIP
                 </button>
-                <button className="data-btn data-btn-import" onClick={() => fileImportInputRef.current?.click()}>
+                <button
+                  type="button"
+                  className="data-btn data-btn-import"
+                  onClick={() => fileImportInputRef.current?.click()}
+                >
                   <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import Backup
                 </button>
               </div>
