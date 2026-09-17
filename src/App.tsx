@@ -29,7 +29,6 @@ import {
 
 import { faTrashCan } from '@fortawesome/free-regular-svg-icons';
 import { faWhatsapp, faTelegram } from '@fortawesome/free-brands-svg-icons';
- // @ts-ignore 
 import JSZip from 'jszip';
 
 /* ── THEME-AWARE PALETTES ── */
@@ -209,6 +208,7 @@ export default function App() {
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [showChecklist, setShowChecklist] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [importConflict, setImportConflict] = useState<{ existingSave: GameSave; incomingSave: GameSave } | null>(null);
 
   // Form state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -229,6 +229,7 @@ export default function App() {
 
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const galleryInputRef = useRef<HTMLInputElement>(null);
+  const fileImportInputRef = useRef<HTMLInputElement>(null);
   const checklistRef = useRef<HTMLDivElement>(null);
   const gameNameInputRef = useRef<HTMLInputElement>(null);
 
@@ -386,7 +387,7 @@ export default function App() {
   }, [showChecklist]);
 
   useEffect(() => {
-    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareData || fullscreenImage);
+    const anyModalOpen = !!(deleteConfirmId || showPhotoModal || shareData || fullscreenImage || importConflict);
     if (!anyModalOpen) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
@@ -394,10 +395,11 @@ export default function App() {
       setShowPhotoModal(false);
       setShareData(null);
       setFullscreenImage(null);
+      setImportConflict(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [deleteConfirmId, showPhotoModal, shareData, fullscreenImage]);
+  }, [deleteConfirmId, showPhotoModal, shareData, fullscreenImage, importConflict]);
 
   const timeAgo = (ts: number) => {
     const elapsedMs = Date.now() - ts;
@@ -508,6 +510,159 @@ export default function App() {
       title: save.name,
       save
     });
+  };
+
+  // Export a Single Game file (.zip containing save.json + table.jpg)
+  const exportSingleGame = async (save: GameSave) => {
+    try {
+      const zip = new JSZip();
+      const cleanSave = { ...save, photo: undefined, hasPhoto: Boolean(save.photo) };
+      zip.file('save.json', JSON.stringify({ version: 2, app: 'PackAway', save: cleanSave }, null, 2));
+
+      if (save.photo) {
+        const parts = save.photo.split(',');
+        if (parts.length >= 2) {
+          zip.folder('photos')?.file(`${save.id}.jpg`, parts[1], { base64: true });
+        }
+      }
+
+      const content = await zip.generateAsync({ type: 'blob' });
+      const slug = save.name.toLowerCase().replace(/[^a-z0-9]/g, '-');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = `packaway-${slug}.zip`;
+      a.click();
+      setShareData(null);
+      showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Exported "${save.name}"!`);
+    } catch {
+      showToastMsg(<FontAwesomeIcon icon={faXmark} aria-hidden="true" />, 'Could not export game file');
+    }
+  };
+
+  // Unified Smart Import: Automatically handles Single Game files OR Bulk Backups (.zip or .json)
+  const importBackupOrGame = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      let isBulk = false;
+      let importedSaves: GameSave[] = [];
+      let singleGameSave: GameSave | null = null;
+
+      if (file.name.endsWith('.zip')) {
+        const zip = await JSZip.loadAsync(file);
+
+        if (zip.file('saves.json')) {
+          // Bulk Backup ZIP
+          isBulk = true;
+          const jsonText = await zip.file('saves.json')!.async('text');
+          const parsed = JSON.parse(jsonText);
+          const rawSaves: GameSave[] = parsed.saves || [];
+
+          for (const s of rawSaves) {
+            let photoDataUrl: string | undefined = undefined;
+            const photoFile = zip.file(`photos/${s.id}.jpg`) || zip.file(`photos/${s.id}.png`) || zip.file(`photos/${s.id}.jpeg`);
+            if (photoFile) {
+              const b64 = await photoFile.async('base64');
+              photoDataUrl = `data:image/jpeg;base64,${b64}`;
+            }
+            importedSaves.push({
+              ...s,
+              hasPhoto: Boolean(photoDataUrl),
+              photo: photoDataUrl
+            });
+          }
+        } else if (zip.file('save.json')) {
+          // Single Game ZIP
+          isBulk = false;
+          const jsonText = await zip.file('save.json')!.async('text');
+          const parsed = JSON.parse(jsonText);
+          const rawSave: GameSave = parsed.save || parsed;
+
+          if (rawSave) {
+            let photoDataUrl: string | undefined = undefined;
+            const photoFile = zip.file(`photos/${rawSave.id}.jpg`) || zip.file(`photos/${rawSave.id}.png`) || zip.file(`photos/${rawSave.id}.jpeg`);
+            if (photoFile) {
+              const b64 = await photoFile.async('base64');
+              photoDataUrl = `data:image/jpeg;base64,${b64}`;
+            }
+            singleGameSave = {
+              ...rawSave,
+              hasPhoto: Boolean(photoDataUrl),
+              photo: photoDataUrl
+            };
+          }
+        }
+      } else {
+        // Plain .json file
+        const text = await file.text();
+        const parsed = JSON.parse(text);
+        if (parsed.saves && Array.isArray(parsed.saves)) {
+          isBulk = true;
+          importedSaves = parsed.saves;
+        } else if (parsed.save || parsed.id) {
+          isBulk = false;
+          singleGameSave = parsed.save || parsed;
+        }
+      }
+
+      // 1. Handle Single Game Import (with Conflict / Duplicate Check)
+      if (!isBulk && singleGameSave && singleGameSave.name) {
+        const allSaves = await db.saves.toArray();
+        const existing = allSaves.find(s =>
+          s.id === singleGameSave?.id ||
+          (s.name.toLowerCase() === singleGameSave?.name.toLowerCase() && (s.scenario || '').toLowerCase() === (singleGameSave?.scenario || '').toLowerCase())
+        );
+
+        if (existing) {
+          setImportConflict({ existingSave: existing, incomingSave: singleGameSave });
+          return;
+        }
+
+        await db.saves.put(singleGameSave);
+        setSelectedSaveId(singleGameSave.id);
+        showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported "${singleGameSave.name}"!`);
+        try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${singleGameSave.id}`); } catch { /* ignore */ }
+        setScreen('resume');
+        return;
+      }
+
+      // 2. Handle Bulk Backup Restore
+      if (isBulk && importedSaves.length > 0) {
+        const allSaves = await db.saves.toArray();
+        const conflictSave = importedSaves.find(imp =>
+          allSaves.some(s =>
+            s.id === imp.id ||
+            (s.name.toLowerCase() === imp.name.toLowerCase() && (s.scenario || '').toLowerCase() === (imp.scenario || '').toLowerCase())
+          )
+        );
+
+        if (conflictSave) {
+          const existing = allSaves.find(s =>
+            s.id === conflictSave.id ||
+            (s.name.toLowerCase() === conflictSave.name.toLowerCase() && (s.scenario || '').toLowerCase() === (conflictSave.scenario || '').toLowerCase())
+          )!;
+          setImportConflict({ existingSave: existing, incomingSave: conflictSave });
+          return;
+        }
+
+        if (confirm(`Import ${importedSaves.length} saves? This will replace your current save points.`)) {
+          await db.saves.clear();
+          for (const item of importedSaves) {
+            await db.saves.put(item);
+          }
+          showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${importedSaves.length} save(s)!`);
+          goToHome();
+        }
+        return;
+      }
+
+      alert('No valid game save found in file.');
+    } catch {
+      alert('Could not read backup file.');
+    } finally {
+      e.target.value = '';
+    }
   };
 
   const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -624,7 +779,7 @@ export default function App() {
     if (nextPlayerId === removedId) setNextPlayerId(null);
   };
 
-  // ZIP Backup Export (saves.json + JPEG photos in photos/ folder)
+  // Bulk ZIP Backup Export (saves.json + JPEG photos in photos/ folder)
   const exportBackup = async () => {
     try {
       const zip = new JSZip();
@@ -662,64 +817,6 @@ export default function App() {
     }
   };
 
-  // Backward-compatible Import (supports both .zip and legacy .json files)
-  const importBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    try {
-      let importedSaves: GameSave[] = [];
-
-      if (file.name.endsWith('.zip')) {
-        const zip = await JSZip.loadAsync(file);
-        const jsonFile = zip.file('saves.json');
-        if (!jsonFile) {
-          alert('Invalid ZIP backup: missing saves.json');
-          return;
-        }
-        const jsonText = await jsonFile.async('text');
-        const parsed = JSON.parse(jsonText);
-        const rawSaves: GameSave[] = parsed.saves || [];
-
-        for (const s of rawSaves) {
-          let photoDataUrl: string | undefined = undefined;
-          const photoFile = zip.file(`photos/${s.id}.jpg`) || zip.file(`photos/${s.id}.png`) || zip.file(`photos/${s.id}.jpeg`);
-          if (photoFile) {
-            const b64 = await photoFile.async('base64');
-            photoDataUrl = `data:image/jpeg;base64,${b64}`;
-          }
-          importedSaves.push({
-            ...s,
-            hasPhoto: Boolean(photoDataUrl),
-            photo: photoDataUrl
-          });
-        }
-      } else {
-        const text = await file.text();
-        const parsed = JSON.parse(text);
-        importedSaves = parsed.saves || [];
-      }
-
-      if (importedSaves.length === 0) {
-        alert('No save games found in backup file.');
-        return;
-      }
-
-      if (confirm(`Import ${importedSaves.length} saves? This will replace your current save points.`)) {
-        await db.saves.clear();
-        for (const item of importedSaves) {
-          await db.saves.put(item);
-        }
-        showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported ${importedSaves.length} save(s)!`);
-        goToHome();
-      }
-    } catch {
-      alert('Invalid or corrupted backup file.');
-    } finally {
-      e.target.value = '';
-    }
-  };
-
   const filteredSuggestions = useMemo(() => {
     if (!ddOpen || !gameName.trim()) return [];
     const lowerName = gameName.toLowerCase();
@@ -737,6 +834,14 @@ export default function App() {
 
   return (
     <div className="phone">
+      {/* Hidden file input for unified file imports (single game or bulk backup) */}
+      <input
+        type="file"
+        accept=".zip,.json"
+        ref={fileImportInputRef}
+        onChange={importBackupOrGame}
+        className="hidden"
+      />
 
       {/* ══ HOME SCREEN ══ */}
       {screen === 'home' && (
@@ -847,6 +952,7 @@ export default function App() {
       {screen === 'resume' && (
         selectedSave ? (
           <div className="screen active">
+            {/* Top Navigation: Delete / Edit / Export / Share */}
             <div className="nav">
               <button className="nav-back" onClick={goToHome}>
                 <FontAwesomeIcon icon={faChevronLeft} aria-hidden="true" /> Back
@@ -858,6 +964,9 @@ export default function App() {
                 </button>
                 <button className="nav-btn" onClick={() => openEditForm(selectedSave)} title="Edit" aria-label="Edit this save">
                   <FontAwesomeIcon icon={faEdit} aria-hidden="true" />
+                </button>
+                <button className="nav-btn" onClick={() => exportSingleGame(selectedSave)} title="Export" aria-label="Export this save file">
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" />
                 </button>
                 <button className="nav-btn" onClick={() => handleShare(selectedSave)} title="Share" aria-label="Share this save">
                   <FontAwesomeIcon icon={faShareNodes} aria-hidden="true" />
@@ -1363,13 +1472,13 @@ export default function App() {
                 </div>
               </div>
               <div className="data-btns">
-                <button className="data-btn data-btn-export" onClick={exportBackup}>
-                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export ZIP
+                <button className="data-btn data-btn-import" onClick={exportBackup}>
+                  <FontAwesomeIcon icon={faDownload} aria-hidden="true" /> Export
                 </button>
-                <label className="data-btn data-btn-import" style={{ cursor: 'pointer' }}>
-                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import Backup
-                  <input type="file" accept=".zip,.json" onChange={importBackup} className="hidden" />
-                </label>
+                <button className="data-btn data-btn-import" style={{ cursor: 'pointer' }}>
+                  <FontAwesomeIcon icon={faUpload} aria-hidden="true" /> Import
+                  <input type="file" accept=".zip,.json" onChange={importBackupOrGame} className="hidden" />
+                </button>
               </div>
             </div>
 
@@ -1415,6 +1524,56 @@ export default function App() {
               </button>
             </div>
             <button className="share-close" onClick={() => setDeleteConfirmId(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ IMPORT CONFLICT MODAL ══ */}
+      {importConflict && (
+        <div className="share-overlay" onClick={() => setImportConflict(null)}>
+          <div className="share-panel" role="dialog" aria-modal="true" aria-labelledby="import-conflict-title" onClick={e => e.stopPropagation()}>
+            <p className="share-title" id="import-conflict-title">Import Game Save</p>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '13px', marginBottom: '16px', lineHeight: '1.4' }}>
+              An existing save point for <strong>"{importConflict.incomingSave.name}"</strong> was found on this device.
+            </p>
+            <div className="share-btns">
+              <button
+                className="btn-primary"
+                onClick={async () => {
+                  const updatedSave = { ...importConflict.incomingSave, id: importConflict.existingSave.id, lastModified: Date.now() };
+                  await db.saves.put(updatedSave);
+                  setSelectedSaveId(updatedSave.id);
+                  setImportConflict(null);
+                  setScreenState('resume');
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Updated "${updatedSave.name}"!`);
+                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${updatedSave.id}`); } catch { /* ignore */ }
+                }}
+              >
+                🔄 Overwrite / Update Existing
+              </button>
+              
+              <button
+                className="share-btn share-copy"
+                onClick={async () => {
+                  const newCopyId = `save_${Date.now()}`;
+                  const copySave = {
+                    ...importConflict.incomingSave,
+                    id: newCopyId,
+                    name: `${importConflict.incomingSave.name} (Copy)`,
+                    lastModified: Date.now()
+                  };
+                  await db.saves.put(copySave);
+                  setSelectedSaveId(newCopyId);
+                  setImportConflict(null);
+                  setScreenState('resume');
+                  showToastMsg(<FontAwesomeIcon icon={faCircleCheck} aria-hidden="true" />, `Imported as new copy!`);
+                  try { window.history.replaceState({ screen: 'resume' }, '', `/#/save/${newCopyId}`); } catch { /* ignore */ }
+                }}
+              >
+                📋 Keep Both (Save as Copy)
+              </button>
+            </div>
+            <button className="share-close" onClick={() => { setImportConflict(null); goToHome(); }}>Cancel</button>
           </div>
         </div>
       )}
@@ -1493,7 +1652,7 @@ export default function App() {
                 </button>
               )}
 
-              {/* WhatsApp — formatted markdown text using '*' */}
+              {/* WhatsApp — formatted markdown text */}
               <a
                 className="share-btn share-wa"
                 href={`https://wa.me/?text=${encodeURIComponent(shareData.text)}`}
@@ -1514,7 +1673,7 @@ export default function App() {
               >
                 <FontAwesomeIcon icon={faTelegram} aria-hidden="true" /> Telegram
               </a>
-
+              
               {/* Download photo button if present */}
               {shareData.photo && (
                 <button
